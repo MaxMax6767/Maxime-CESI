@@ -172,8 +172,12 @@ void setup()
   leds.init();
   SoftSerial.begin(9600);
   bme.begin(0x76);
-  SD.begin(4);
-
+  if (!SD.begin(4))
+  {
+    Serial.println("Card failed, or not present");
+    while (1)
+      ;
+  }
   // Configuration de l'Horloge
   clock.begin();
   clock.fillByYMD(2023, 10, 16);
@@ -218,15 +222,13 @@ void erreur(int R, int G, int B, int R2, int G2, int B2, int d)
   }
 }
 
-void getCapteur(bool o, float m, int l, int h, String n)
+String getCapteur(bool o, float m, int l, int h, String n)
 {
   if (o)
   {
     if (m < l || m > h)
     {
       n = "";
-      mode = 7;
-      erreur(150, 0, 0, 0, 150, 0, 2000);
     }
     else
     {
@@ -237,6 +239,7 @@ void getCapteur(bool o, float m, int l, int h, String n)
   {
     n = "";
   }
+  return n;
 }
 
 void Lecture()
@@ -267,22 +270,35 @@ void Lecture()
   }
 
   // Lecture de la luminosite (si activé)
-  getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH, Mesures->luminosite);
+  Mesures->luminosite = getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH, Mesures->luminosite);
 
   // Lecture de la température de l'air (si activé)
-  getCapteur(TEMP_AIR, bme.readTemperature(), MIN_TEMP_AIR, MAX_TEMP_AIR, Mesures->temperature);
+  Mesures->temperature = getCapteur(TEMP_AIR, bme.readTemperature(), MIN_TEMP_AIR, MAX_TEMP_AIR, Mesures->temperature);
 
   // Lecture de l'humidité (si activé)
-  getCapteur(HYGR, bme.readHumidity(), HYGR_MINT, HYGR_MAXT, Mesures->humidite);
+  Mesures->humidite = getCapteur(HYGR, bme.readHumidity(), HYGR_MINT, HYGR_MAXT, Mesures->humidite);
 
   // Lecture de la pression (si activé)
-  getCapteur(PRESSURE, bme.readPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX, Mesures->pressure);
+  Mesures->pressure = getCapteur(PRESSURE, bme.readPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX, Mesures->pressure);
+}
+
+String nom(int i)
+{
+  String s = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_" + String(i) + ".log";
+  return s;
+}
+
+void prnt(File f)
+{
+  f.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
+  f.close();
 }
 
 void ecriture()
 {
   static int rev = 0;
-  String ecriture = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_0.log";
+  static String work = nom(0);
+  Serial.println(work);
 
   // Verif de l'espace libre sur la SD
   if (SD.freeClusterCount() < 1)
@@ -293,44 +309,44 @@ void ecriture()
   else
   {
     // Verification de si le fichier d'écriture existe
-    if (SD.exists(ecriture))
+    if (SD.exists(work))
     {
       // Ouverture du fichier
-      File dataFile = SD.open(ecriture, FILE_WRITE);
+      File dataFile = SD.open(work, FILE_WRITE);
+
       // Verification de si le fichier d'écriture dépasse la taille max
       if (dataFile.size() >= FILE_MAX_SIZE)
       {
         // Fermeture du fichier
         dataFile.close();
-        String fileName = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_" + String(rev) + ".log";
+        String fileName = nom(rev);
         // Verification du fichier dont le numero de revision est le plus grand sur la SD
         while (SD.exists(fileName))
         {
           rev += 1;
-          fileName = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_" + String(rev) + ".log";
+          fileName = nom(rev);
         }
         // Renommer le fichier d'écriture avec le numero de revision le plus grand
-        SD.rename(ecriture, fileName);
+        SD.rename(work, fileName);
+        Serial.println(fileName);
         // Création & ouverture du fichier d'écriture
-        File dataFile = SD.open(ecriture, FILE_WRITE);
-        // Ecriture de l'entete du fichier
-        dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
+        goto newfile;
+      }
+      else
+      {
         // Ecriture des données
-        dataFile.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
-        // Fermeture du fichier
-        dataFile.close();
+        prnt(dataFile);
       }
     }
     else
     {
+    newfile:
       // Ouverture du fichier
-      File dataFile = SD.open(ecriture, FILE_WRITE);
+      File dataFile = SD.open(work, FILE_WRITE);
       // Ecriture de l'entete du fichier
       dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
       // Ecriture des données
-      dataFile.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
-      // Fermeture du fichier
-      dataFile.close();
+      prnt(dataFile);
     }
   }
 }
@@ -342,7 +358,7 @@ void loop()
   switch (mode)
   {
   case 0:
-    if (currentTime - startTime >= 10000)
+    if (currentTime - startTime >= 5000)
     {
       Serial.println("### Initialisation ###");
       initialisation = false;
@@ -352,7 +368,7 @@ void loop()
     }
     break;
   case 1:
-    if (currentTime - startTime >= 5000)
+    if (currentTime - startTime >= 1000)
     {
       Lecture();
       ecriture();
@@ -360,7 +376,7 @@ void loop()
     }
     break;
   case 2:
-    if (currentTime - startTime >= 5000)
+    if (currentTime - startTime >= 1000)
     {
       Lecture();
       ecriture();
@@ -368,7 +384,7 @@ void loop()
     }
     break;
   case 3:
-    if (currentTime - startTime >= 5000)
+    if (currentTime - startTime >= 1000)
     {
       Serial.println("### Config ###");
       startTime = currentTime;
@@ -377,7 +393,8 @@ void loop()
   case 4:
     if (currentTime - startTime >= 5000)
     {
-      Serial.println("### Maintenance ###");
+      Lecture();
+      Serial.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
       startTime = currentTime;
     }
     break;
