@@ -8,15 +8,15 @@
 SdFat SD;
 DS1307 clock;
 SoftwareSerial SoftSerial(0, 1);
-bool t;
 Adafruit_BME280 bme;
+ChainableLED leds(7, 8, 1);
+bool t;
 unsigned long startTime = millis();
 bool lp = false;
 bool initialisation = true;
-ChainableLED leds(7, 8, 1);
 byte r = 2;
 byte g = 3;
-
+String sep = " ; ";
 int mode = 0;
 /*
 +---+--------------------------------+
@@ -218,6 +218,27 @@ void erreur(int R, int G, int B, int R2, int G2, int B2, int d)
   }
 }
 
+void getCapteur(bool o, float m, int l, int h, String n)
+{
+  if (o)
+  {
+    if (m < l || m > h)
+    {
+      n = "";
+      mode = 7;
+      erreur(150, 0, 0, 0, 150, 0, 2000);
+    }
+    else
+    {
+      n = String(m);
+    }
+  }
+  else
+  {
+    n = "";
+  }
+}
+
 void Lecture()
 {
   static bool gps;
@@ -246,102 +267,16 @@ void Lecture()
   }
 
   // Lecture de la luminosite (si activé)
-  if (LUMIN)
-  {
-    float l = analogRead(A0);
-    if (l < LUMIN_LOW || l > LUMIN_HIGH)
-    {
-      Mesures->luminosite = "";
-      mode = 7;
-      erreur(150, 0, 0, 0, 150, 0, 2000);
-    }
-    else
-    {
-      Mesures->luminosite = String(l);
-    }
-  }
-  else
-  {
-    Mesures->luminosite = "";
-  }
+  getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH, Mesures->luminosite);
 
   // Lecture de la température de l'air (si activé)
-  if (TEMP_AIR)
-  {
-    float t = bme.readTemperature();
-    if (t < MIN_TEMP_AIR || t > MAX_TEMP_AIR)
-    {
-      Mesures->temperature = "";
-      mode = 7;
-      erreur(150, 0, 0, 0, 150, 0, 2000);
-    }
-    else
-    {
-      Mesures->temperature = String(t);
-    }
-  }
-  else
-  {
-    Mesures->temperature = "";
-  }
+  getCapteur(TEMP_AIR, bme.readTemperature(), MIN_TEMP_AIR, MAX_TEMP_AIR, Mesures->temperature);
 
   // Lecture de l'humidité (si activé)
-  if (HYGR)
-  {
-    float t = bme.readTemperature();
-    if (t < HYGR_MINT || t > HYGR_MAXT)
-    {
-      Mesures->humidite = "";
-      mode = 7;
-      erreur(150, 0, 0, 0, 150, 0, 2000);
-    }
-    else
-    {
-      Mesures->humidite = String(bme.readHumidity());
-    }
-  }
-  else
-  {
-    Mesures->humidite = "";
-  }
+  getCapteur(HYGR, bme.readHumidity(), HYGR_MINT, HYGR_MAXT, Mesures->humidite);
 
   // Lecture de la pression (si activé)
-  if (PRESSURE)
-  {
-    float p = bme.readPressure() / 100.0F;
-    Mesures->pressure = String(p);
-    if (p < PRESSURE_MIN || p > PRESSURE_MAX)
-    {
-      Mesures->pressure = "";
-      mode = 7;
-      erreur(150, 0, 0, 0, 150, 0, 2000);
-    }
-    else
-    {
-      Mesures->pressure = String(p);
-    }
-  }
-  else
-  {
-    Mesures->pressure = "";
-  }
-}
-
-void affichage()
-{
-  Lecture();
-  Serial.print(Mesures->temps);
-  Serial.print(" ; ");
-  Serial.print(Mesures->gps);
-  Serial.print(" ; ");
-  Serial.print(Mesures->luminosite);
-  Serial.print(" ; ");
-  Serial.print(Mesures->temperature);
-  Serial.print(" ; ");
-  Serial.print(Mesures->humidite);
-  Serial.print(" ; ");
-  Serial.print(Mesures->pressure);
-  Serial.println(" ");
+  getCapteur(PRESSURE, bme.readPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX, Mesures->pressure);
 }
 
 void ecriture()
@@ -381,7 +316,7 @@ void ecriture()
         // Ecriture de l'entete du fichier
         dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
         // Ecriture des données
-        dataFile.println(Mesures->temps + " ; " + Mesures->gps + " ; " + Mesures->luminosite + " ; " + Mesures->temperature + " ; " + Mesures->humidite + " ; " + Mesures->pressure);
+        dataFile.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
         // Fermeture du fichier
         dataFile.close();
       }
@@ -393,7 +328,7 @@ void ecriture()
       // Ecriture de l'entete du fichier
       dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
       // Ecriture des données
-      dataFile.println(Mesures->temps + " ; " + Mesures->gps + " ; " + Mesures->luminosite + " ; " + Mesures->temperature + " ; " + Mesures->humidite + " ; " + Mesures->pressure);
+      dataFile.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
       // Fermeture du fichier
       dataFile.close();
     }
@@ -419,14 +354,16 @@ void loop()
   case 1:
     if (currentTime - startTime >= 5000)
     {
-      affichage();
+      Lecture();
+      ecriture();
       startTime = currentTime;
     }
     break;
   case 2:
     if (currentTime - startTime >= 5000)
     {
-      affichage();
+      Lecture();
+      ecriture();
       startTime = currentTime;
     }
     break;
