@@ -10,9 +10,37 @@ bool t;
 Adafruit_BME280 bme;
 unsigned long startTime = millis();
 bool lp = false;
-unsigned long timerb1 = 0;
+bool initialisation = true;
 ChainableLED leds(7, 8, 1);
+
 int mode = 0;
+/*
++---+--------------------------------+
+| 0 | Mode initialisation            |
++---+--------------------------------+
+| 1 | Mode Normal                    |
++---+--------------------------------+
+| 2 | Mode Eco                       |
++---+--------------------------------+
+| 3 | Mode Config                    |
++---+--------------------------------+
+| 4 | Mode Maintenance               |
++---+--------------------------------+
+| 5 | Mode Erreur SD Pleine          |
++---+--------------------------------+
+| 6 | Mode Erreur enregistrement SD  |
++---+--------------------------------+
+| 7 | Mode Erreur Valeur Hors champs |
++---+--------------------------------+
+| 8 | Mode Erreur GPS                |
++---+--------------------------------+
+| 9 | Mode Erreur capteur            |
++---+--------------------------------+
+
+*/
+
+byte r = 2;
+byte g = 3;
 
 struct structure
 {
@@ -25,38 +53,92 @@ struct structure
 };
 structure *Mesures = new structure();
 
-void switch1()
+void switchg()
 {
-  static bool b1 = false;
-  unsigned long s;
-  unsigned long f;
-  if (b1)
+  int i = 0;
+  while (digitalRead(g) == LOW)
   {
-    s = millis();
-    b1 = false;
-  }
-  else if (!b1)
-  {
-    f = millis();
-    b1 = true;
-    if (f - s >= 5000)
+    i += 1;
+    delay(1);
+    if (i >= 5000)
     {
-      s = f;
-      if (mode == 0)
+      if (mode == 1)
       {
-        mode = 1;
+        mode = 2;
         leds.setColorRGB(0, 0, 0, 150);
       }
       else
       {
-        mode = 0;
+        mode = 1;
         leds.setColorRGB(0, 0, 150, 0);
+      }
+      break;
+    }
+  }
+}
+
+void switchr()
+{
+  static int modep;
+  int i = 0;
+  while (digitalRead(r) == LOW)
+  {
+    i += 1;
+    delay(1);
+    if (i >= 5000)
+    {
+      if (initialisation)
+      {
+        if (mode == 0)
+        {
+          mode = 3;
+          leds.setColorRGB(0, 150, 0, 0);
+          while (digitalRead(r) == LOW)
+            ;
+          break;
+        }
+        else
+        {
+          initialisation = false;
+          mode = 1;
+          leds.setColorRGB(0, 0, 150, 0);
+          while (digitalRead(r) == LOW)
+            ;
+          break;
+        }
+      }
+      else
+      {
+        if (mode == 1 || mode == 2)
+        {
+          modep = mode;
+          mode = 4;
+          leds.setColorRGB(0, 150, 150, 0);
+          while (digitalRead(r) == LOW)
+            ;
+          break;
+        }
+        else
+        {
+          mode = modep;
+          if (mode == 1)
+          {
+            leds.setColorRGB(0, 0, 150, 0);
+            while (digitalRead(r) == LOW)
+              ;
+            break;
+          }
+          else
+          {
+            leds.setColorRGB(0, 0, 0, 150);
+            while (digitalRead(r) == LOW)
+              ;
+            break;
+          }
+        }
       }
     }
   }
-  Serial.println(s);
-  Serial.println(f);
-  Serial.println(f - s);
 }
 
 void setup()
@@ -72,9 +154,10 @@ void setup()
   clock.fillDayOfWeek(SAT);
   clock.setTime();
 
-  attachInterrupt(digitalPinToInterrupt(2), switch1, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(g), switchg, LOW);
+  attachInterrupt(digitalPinToInterrupt(r), switchr, LOW);
 
-  leds.setColorRGB(0, 0, 150, 0);
+  leds.setColorRGB(0, 150, 150, 150);
 }
 
 String getGps()
@@ -150,18 +233,42 @@ void loop()
   switch (mode)
   {
   case 0:
-    if (currentTime - startTime >= 1000)
+    if (currentTime - startTime >= 10000)
     {
-      Serial.println("normal");
-      // affichage(false);
+      Serial.println("init");
+      initialisation = false;
+      mode = 1;
+      leds.setColorRGB(0, 0, 150, 0);
       startTime = currentTime;
     }
     break;
   case 1:
     if (currentTime - startTime >= 1000)
     {
-      Serial.println("eco");
+      Serial.println("Normal");
       // affichage(true);
+      startTime = currentTime;
+    }
+    break;
+  case 2:
+    if (currentTime - startTime >= 1000)
+    {
+      Serial.println("Eco");
+      // affichage(false);
+      startTime = currentTime;
+    }
+    break;
+  case 3:
+    if (currentTime - startTime >= 1000)
+    {
+      Serial.println("Config");
+      startTime = currentTime;
+    }
+    break;
+  case 4:
+    if (currentTime - startTime >= 1000)
+    {
+      Serial.println("Maintenance");
       startTime = currentTime;
     }
     break;
