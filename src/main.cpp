@@ -209,17 +209,24 @@ String getGps()
 
 void erreur(int R, int G, int B, int R2, int G2, int B2, int d)
 {
-  leds.setColorRGB(0, R, G, B);
-  delay(1000);
-  leds.setColorRGB(0, R2, G2, B2);
-  delay(d);
+  while (true)
+  {
+    leds.setColorRGB(0, R, G, B);
+    delay(1000);
+    leds.setColorRGB(0, R2, G2, B2);
+    delay(d);
+  }
 }
 
 void Lecture()
 {
   static bool gps;
+
+  // Lecture de l'heure (tout le temps)
   clock.getTime();
   Mesures->temps = String(clock.hour, DEC) + ":" + String(clock.minute, DEC) + ":" + String(clock.second, DEC);
+
+  // Lecture du GPS (en fonction du mode Eco)
   if (mode != 2)
   {
     Mesures->gps = getGps();
@@ -237,38 +244,68 @@ void Lecture()
       gps = true;
     }
   }
+
+  // Lecture de la luminosite (si activé)
   if (LUMIN)
   {
-    Mesures->luminosite = String(analogRead(A0));
+    float l = analogRead(A0);
+    if (l < LUMIN_LOW || l > LUMIN_HIGH)
+    {
+      Mesures->luminosite = "";
+      mode = 7;
+      erreur(150, 0, 0, 0, 150, 0, 2000);
+    }
+    else
+    {
+      Mesures->luminosite = String(l);
+    }
   }
   else
   {
     Mesures->luminosite = "";
   }
+
+  // Lecture de la température de l'air (si activé)
   if (TEMP_AIR)
   {
-    // Lecture de la température en °C (la valeur est un float)
-    Mesures->temperature = String(bme.readTemperature());
+    float t = bme.readTemperature();
+    if (t < MIN_TEMP_AIR || t > MAX_TEMP_AIR)
+    {
+      Mesures->temperature = "";
+      mode = 7;
+      erreur(150, 0, 0, 0, 150, 0, 2000);
+    }
+    else
+    {
+      Mesures->temperature = String(t);
+    }
   }
   else
   {
     Mesures->temperature = "";
   }
+
+  // Lecture de l'humidité (si activé)
   if (HYGR)
   {
     float t = bme.readTemperature();
-    Mesures->humidite = String(bme.readHumidity());
     if (t < HYGR_MINT || t > HYGR_MAXT)
     {
       Mesures->humidite = "";
+      mode = 7;
+      erreur(150, 0, 0, 0, 150, 0, 2000);
     }
-    mode = 7;
-    erreur(150, 0, 0, 0, 150, 0, 2000);
+    else
+    {
+      Mesures->humidite = String(bme.readHumidity());
+    }
   }
   else
   {
     Mesures->humidite = "";
   }
+
+  // Lecture de la pression (si activé)
   if (PRESSURE)
   {
     float p = bme.readPressure() / 100.0F;
@@ -276,15 +313,18 @@ void Lecture()
     if (p < PRESSURE_MIN || p > PRESSURE_MAX)
     {
       Mesures->pressure = "";
+      mode = 7;
+      erreur(150, 0, 0, 0, 150, 0, 2000);
     }
-    mode = 7;
-    erreur(150, 0, 0, 0, 150, 0, 2000);
+    else
+    {
+      Mesures->pressure = String(p);
+    }
   }
   else
   {
     Mesures->pressure = "";
   }
-  Mesures->pressure = bme.readPressure() / 100.0F;
 }
 
 void affichage()
@@ -304,30 +344,59 @@ void affichage()
   Serial.println(" ");
 }
 
-void write()
+void ecriture()
 {
   static int rev = 0;
-  filename =
-      File dataFile = SD.open("datalog.txt", FILE_WRITE);
-  if (dataFile)
+  String ecriture = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_0.log";
+
+  // Verif de l'espace libre sur la SD
+  if (SD.freeClusterCount() < 1)
   {
-    dataFile.print(Mesures->temps);
-    dataFile.print(" ; ");
-    dataFile.print(Mesures->gps);
-    dataFile.print(" ; ");
-    dataFile.print(Mesures->luminosite);
-    dataFile.print(" ; ");
-    dataFile.print(Mesures->temperature);
-    dataFile.print(" ; ");
-    dataFile.print(Mesures->humidite);
-    dataFile.print(" ; ");
-    dataFile.print(Mesures->pressure);
-    dataFile.println(" ");
-    dataFile.close();
+    mode = 5;
+    erreur(150, 0, 0, 0, 150, 0, 2000);
   }
   else
   {
-    erreur(150, 0, 0, 0, 0, 0, 1000);
+    // Verification de si le fichier d'écriture existe
+    if (SD.exists(ecriture))
+    {
+      // Ouverture du fichier
+      File dataFile = SD.open(ecriture, FILE_WRITE);
+      // Verification de si le fichier d'écriture dépasse la taille max
+      if (dataFile.size() >= FILE_MAX_SIZE)
+      {
+        // Fermeture du fichier
+        dataFile.close();
+        String fileName = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_" + String(rev) + ".log";
+        // Verification du fichier dont le numero de revision est le plus grand sur la SD
+        while (SD.exists(fileName))
+        {
+          rev += 1;
+          fileName = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_" + String(rev) + ".log";
+        }
+        // Renommer le fichier d'écriture avec le numero de revision le plus grand
+        SD.rename(ecriture, fileName);
+        // Création & ouverture du fichier d'écriture
+        File dataFile = SD.open(ecriture, FILE_WRITE);
+        // Ecriture de l'entete du fichier
+        dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
+        // Ecriture des données
+        dataFile.println(Mesures->temps + " ; " + Mesures->gps + " ; " + Mesures->luminosite + " ; " + Mesures->temperature + " ; " + Mesures->humidite + " ; " + Mesures->pressure);
+        // Fermeture du fichier
+        dataFile.close();
+      }
+    }
+    else
+    {
+      // Ouverture du fichier
+      File dataFile = SD.open(ecriture, FILE_WRITE);
+      // Ecriture de l'entete du fichier
+      dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
+      // Ecriture des données
+      dataFile.println(Mesures->temps + " ; " + Mesures->gps + " ; " + Mesures->luminosite + " ; " + Mesures->temperature + " ; " + Mesures->humidite + " ; " + Mesures->pressure);
+      // Fermeture du fichier
+      dataFile.close();
+    }
   }
 }
 
