@@ -315,7 +315,7 @@ void ecriture()
       File dataFile = SD.open(work, FILE_WRITE);
 
       // Verification de si le fichier d'écriture dépasse la taille max
-      if (dataFile.size() >= FILE_MAX_SIZE)
+      if (dataFile.size() >= 4096)
       {
         // Fermeture du fichier
         dataFile.close();
@@ -326,10 +326,15 @@ void ecriture()
           rev += 1;
           fileName = nom(rev);
         }
+        Serial.println("trop gros");
         // Renommer le fichier d'écriture avec le numero de revision le plus grand
         SD.rename(work, fileName);
         Serial.println(fileName);
         // Création & ouverture du fichier d'écriture
+        goto newfile;
+      }
+      else
+      {
         goto newfile;
       }
       else
@@ -341,10 +346,11 @@ void ecriture()
     else
     {
     newfile:
+    newfile:
       // Ouverture du fichier
       File dataFile = SD.open(work, FILE_WRITE);
       // Ecriture de l'entete du fichier
-      dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
+      dataFile.println("Temps");
       // Ecriture des données
       prnt(dataFile);
     }
