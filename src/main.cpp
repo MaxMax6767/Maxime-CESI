@@ -297,8 +297,9 @@ void ecriture()
     {
       // Ouverture du fichier
       File dataFile = SD.open(ecriture, FILE_WRITE);
+
       // Verification de si le fichier d'écriture dépasse la taille max
-      if (dataFile.size() >= FILE_MAX_SIZE)
+      if (dataFile.size() >= 4096)
       {
         // Fermeture du fichier
         dataFile.close();
@@ -308,27 +309,31 @@ void ecriture()
         {
           rev += 1;
           fileName = String(clock.year, DEC) + String(clock.month, DEC) + String(clock.dayOfMonth, DEC) + "_" + String(rev) + ".log";
+          Serial.println("  " + rev);
         }
+        Serial.println("trop gros");
         // Renommer le fichier d'écriture avec le numero de revision le plus grand
         SD.rename(ecriture, fileName);
         // Création & ouverture du fichier d'écriture
-        File dataFile = SD.open(ecriture, FILE_WRITE);
-        // Ecriture de l'entete du fichier
-        dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
+        goto newfile;
+      }
+      else
+      {
         // Ecriture des données
-        dataFile.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
+        dataFile.println(Mesures->temps);
         // Fermeture du fichier
         dataFile.close();
       }
     }
     else
     {
+    newfile:
       // Ouverture du fichier
       File dataFile = SD.open(ecriture, FILE_WRITE);
       // Ecriture de l'entete du fichier
-      dataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression");
+      dataFile.println("Temps");
       // Ecriture des données
-      dataFile.println(Mesures->temps + sep + Mesures->gps + sep + Mesures->luminosite + sep + Mesures->temperature + sep + Mesures->humidite + sep + Mesures->pressure);
+      dataFile.println(Mesures->temps);
       // Fermeture du fichier
       dataFile.close();
     }
