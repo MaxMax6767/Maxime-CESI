@@ -42,6 +42,22 @@ int mode = 0;
 +---+--------------------------------+
 */
 
+bool LUMIN = 1;
+int LUMIN_LOW = 255;
+int LUMIN_HIGH = 768;
+bool TEMP_AIR = 1;
+int MIN_TEMP_AIR = -10;
+int MAX_TEMP_AIR = 60;
+bool HYGR = 1;
+int HYGR_MINT = 0;
+int HYGR_MAXT = 50;
+bool PRESSURE = 1;
+int PRESSURE_MIN = 850;
+int PRESSURE_MAX = 1080;
+unsigned long LOG_INTERVAL = 10;
+uint32_t FILE_MAX_SIZE = 4096;
+int TIMEOUT = 30;
+
 struct structure
 {
   String temps;
@@ -191,6 +207,14 @@ String getGps()
   return gpsData;
 }
 
+void erreur(int R, int G, int B, int R2, int G2, int B2, int d)
+{
+  leds.setColorRGB(0, R, G, B);
+  delay(1000);
+  leds.setColorRGB(0, R2, G2, B2);
+  delay(d);
+}
+
 void Lecture()
 {
   static bool gps;
@@ -213,19 +237,54 @@ void Lecture()
       gps = true;
     }
   }
-
-  Mesures->luminosite = analogRead(A0);
-  Mesures->temperature = bme.readTemperature();
-  Mesures->humidite = bme.readHumidity();
+  if (LUMIN)
+  {
+    Mesures->luminosite = String(analogRead(A0));
+  }
+  else
+  {
+    Mesures->luminosite = "";
+  }
+  if (TEMP_AIR)
+  {
+    // Lecture de la température en °C (la valeur est un float)
+    Mesures->temperature = String(bme.readTemperature());
+  }
+  else
+  {
+    Mesures->temperature = "";
+  }
+  if (HYGR)
+  {
+    float t = bme.readTemperature();
+    Mesures->humidite = String(bme.readHumidity());
+    if (t < HYGR_MINT || t > HYGR_MAXT)
+    {
+      Mesures->humidite = "";
+    }
+    mode = 7;
+    erreur(150, 0, 0, 0, 150, 0, 2000);
+  }
+  else
+  {
+    Mesures->humidite = "";
+  }
+  if (PRESSURE)
+  {
+    float p = bme.readPressure() / 100.0F;
+    Mesures->pressure = String(p);
+    if (p < PRESSURE_MIN || p > PRESSURE_MAX)
+    {
+      Mesures->pressure = "";
+    }
+    mode = 7;
+    erreur(150, 0, 0, 0, 150, 0, 2000);
+  }
+  else
+  {
+    Mesures->pressure = "";
+  }
   Mesures->pressure = bme.readPressure() / 100.0F;
-}
-
-void erreur(int R, int G, int B, int R2, int G2, int B2, int d)
-{
-  leds.setColorRGB(0, R, G, B);
-  delay(1000);
-  leds.setColorRGB(0, R2, G2, B2);
-  delay(d);
 }
 
 void affichage()
