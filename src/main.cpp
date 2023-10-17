@@ -3,7 +3,9 @@
 #include "DS1307.h"
 #include <Adafruit_BME280.h>
 #include <ChainableLED.h>
+#include <SdFat.h>
 
+SdFat SD;
 DS1307 clock;
 SoftwareSerial SoftSerial(0, 1);
 bool t;
@@ -12,6 +14,8 @@ unsigned long startTime = millis();
 bool lp = false;
 bool initialisation = true;
 ChainableLED leds(7, 8, 1);
+byte r = 2;
+byte g = 3;
 
 int mode = 0;
 /*
@@ -36,11 +40,7 @@ int mode = 0;
 +---+--------------------------------+
 | 9 | Mode Erreur capteur            |
 +---+--------------------------------+
-
 */
-
-byte r = 2;
-byte g = 3;
 
 struct structure
 {
@@ -55,6 +55,7 @@ structure *Mesures = new structure();
 
 void switchg()
 {
+  // Bascule mode Eco / Normal si appui long sur le bouton vert
   int i = 0;
   while (digitalRead(g) == LOW)
   {
@@ -64,11 +65,13 @@ void switchg()
     {
       if (mode == 1)
       {
+        // Son viens du mode normal, on passe en mode Eco
         mode = 2;
         leds.setColorRGB(0, 0, 0, 150);
       }
-      else
+      else if (mode == 2)
       {
+        // Son viens du mode Eco, on passe en mode Normal
         mode = 1;
         leds.setColorRGB(0, 0, 150, 0);
       }
@@ -89,6 +92,7 @@ void switchr()
     {
       if (initialisation)
       {
+        // Si on est en mode initialisation et appui long sur le bouton rouge, on passe en mode config
         if (mode == 0)
         {
           mode = 3;
@@ -99,6 +103,7 @@ void switchr()
         }
         else
         {
+          // Si on est en mode config et appui long sur le bouton rouge, on passe en mode normal
           initialisation = false;
           mode = 1;
           leds.setColorRGB(0, 0, 150, 0);
@@ -111,6 +116,7 @@ void switchr()
       {
         if (mode == 1 || mode == 2)
         {
+          // Si on est en mode Eco ou Standard et que le bouton rouge est appuyé longtemps, on passe en mode maintenance
           modep = mode;
           mode = 4;
           leds.setColorRGB(0, 150, 150, 0);
@@ -120,6 +126,7 @@ void switchr()
         }
         else
         {
+          // Si on est en mode maintenance et que le bouton rouge est appuyé longtemps, on reviens au mode précédent
           mode = modep;
           if (mode == 1)
           {
@@ -143,20 +150,26 @@ void switchr()
 
 void setup()
 {
+  // Initialisation de la communication serie, I2C, SPI et les LEDS
   Serial.begin(9600);
   Wire.begin();
   leds.init();
   SoftSerial.begin(9600);
+  bme.begin(0x76);
+  SD.begin(4);
 
+  // Configuration de l'Horloge
   clock.begin();
   clock.fillByYMD(2023, 10, 16);
   clock.fillByHMS(15, 00, 00);
   clock.fillDayOfWeek(SAT);
   clock.setTime();
 
+  // Définition des interruptions de changement de mode.
   attachInterrupt(digitalPinToInterrupt(g), switchg, LOW);
   attachInterrupt(digitalPinToInterrupt(r), switchr, LOW);
 
+  // Initialisation de la LED en blanc pour le mode initialisation
   leds.setColorRGB(0, 150, 150, 150);
 }
 
@@ -178,12 +191,12 @@ String getGps()
   return gpsData;
 }
 
-void Lecture(bool e)
+void Lecture()
 {
   static bool gps;
   clock.getTime();
   Mesures->temps = String(clock.hour, DEC) + ":" + String(clock.minute, DEC) + ":" + String(clock.second, DEC);
-  if (!e)
+  if (mode != 2)
   {
     Mesures->gps = getGps();
   }
@@ -200,6 +213,7 @@ void Lecture(bool e)
       gps = true;
     }
   }
+
   Mesures->luminosite = analogRead(A0);
   Mesures->temperature = bme.readTemperature();
   Mesures->humidite = bme.readHumidity();
@@ -214,16 +228,48 @@ void erreur(int R, int G, int B, int R2, int G2, int B2, int d)
   delay(d);
 }
 
-void affichage(bool e)
+void affichage()
 {
-  Lecture(e);
-  Serial.println(Mesures->temps);
-  Serial.println(Mesures->gps);
-  Serial.println(Mesures->luminosite);
-  Serial.println(Mesures->temperature);
-  Serial.println(Mesures->humidite);
-  Serial.println(Mesures->pressure);
-  Serial.println();
+  Lecture();
+  Serial.print(Mesures->temps);
+  Serial.print(" ; ");
+  Serial.print(Mesures->gps);
+  Serial.print(" ; ");
+  Serial.print(Mesures->luminosite);
+  Serial.print(" ; ");
+  Serial.print(Mesures->temperature);
+  Serial.print(" ; ");
+  Serial.print(Mesures->humidite);
+  Serial.print(" ; ");
+  Serial.print(Mesures->pressure);
+  Serial.println(" ");
+}
+
+void write()
+{
+  static int rev = 0;
+  filename =
+      File dataFile = SD.open("datalog.txt", FILE_WRITE);
+  if (dataFile)
+  {
+    dataFile.print(Mesures->temps);
+    dataFile.print(" ; ");
+    dataFile.print(Mesures->gps);
+    dataFile.print(" ; ");
+    dataFile.print(Mesures->luminosite);
+    dataFile.print(" ; ");
+    dataFile.print(Mesures->temperature);
+    dataFile.print(" ; ");
+    dataFile.print(Mesures->humidite);
+    dataFile.print(" ; ");
+    dataFile.print(Mesures->pressure);
+    dataFile.println(" ");
+    dataFile.close();
+  }
+  else
+  {
+    erreur(150, 0, 0, 0, 0, 0, 1000);
+  }
 }
 
 void loop()
@@ -235,7 +281,7 @@ void loop()
   case 0:
     if (currentTime - startTime >= 10000)
     {
-      Serial.println("init");
+      Serial.println("### Initialisation ###");
       initialisation = false;
       mode = 1;
       leds.setColorRGB(0, 0, 150, 0);
@@ -243,36 +289,33 @@ void loop()
     }
     break;
   case 1:
-    if (currentTime - startTime >= 1000)
+    if (currentTime - startTime >= 5000)
     {
-      Serial.println("Normal");
-      // affichage(true);
+      affichage();
       startTime = currentTime;
     }
     break;
   case 2:
-    if (currentTime - startTime >= 1000)
+    if (currentTime - startTime >= 5000)
     {
-      Serial.println("Eco");
-      // affichage(false);
+      affichage();
       startTime = currentTime;
     }
     break;
   case 3:
-    if (currentTime - startTime >= 1000)
+    if (currentTime - startTime >= 5000)
     {
-      Serial.println("Config");
+      Serial.println("### Config ###");
       startTime = currentTime;
     }
     break;
   case 4:
-    if (currentTime - startTime >= 1000)
+    if (currentTime - startTime >= 5000)
     {
-      Serial.println("Maintenance");
+      Serial.println("### Maintenance ###");
       startTime = currentTime;
     }
     break;
   }
-
   delay(1);
 }
