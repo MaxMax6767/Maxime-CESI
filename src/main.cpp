@@ -9,6 +9,7 @@ SoftwareSerial SoftSerial(0, 1);
 bool t;
 Adafruit_BME280 bme;
 unsigned long startTime = millis();
+bool lp = false;
 unsigned long timerb1 = 0;
 ChainableLED leds(7, 8, 1);
 int mode = 0;
@@ -24,9 +25,38 @@ struct structure
 };
 structure *Mesures = new structure();
 
-void interrupt1()
+void switch1()
 {
-  timerb1 = millis();
+  static bool b1 = false;
+  unsigned long s;
+  unsigned long f;
+  if (b1)
+  {
+    s = millis();
+    b1 = false;
+  }
+  else if (!b1)
+  {
+    f = millis();
+    b1 = true;
+    if (f - s >= 5000)
+    {
+      s = f;
+      if (mode == 0)
+      {
+        mode = 1;
+        leds.setColorRGB(0, 0, 0, 150);
+      }
+      else
+      {
+        mode = 0;
+        leds.setColorRGB(0, 0, 150, 0);
+      }
+    }
+  }
+  Serial.println(s);
+  Serial.println(f);
+  Serial.println(f - s);
 }
 
 void setup()
@@ -42,7 +72,7 @@ void setup()
   clock.fillDayOfWeek(SAT);
   clock.setTime();
 
-  attachInterrupt(digitalPinToInterrupt(2), interrupt1, FALLING);
+  attachInterrupt(digitalPinToInterrupt(2), switch1, CHANGE);
 
   leds.setColorRGB(0, 0, 150, 0);
 }
@@ -117,34 +147,21 @@ void loop()
 {
   unsigned long currentTime = millis();
 
-  if (b2 && millis() - timerb1 >= 5000)
-  {
-    b2 = false;
-    if (mode == 0)
-    {
-      mode = 1;
-      leds.setColorRGB(0, 0, 0, 150);
-    }
-    else
-    {
-      mode = 0;
-      leds.setColorRGB(0, 0, 150, 0);
-    }
-  }
-
   switch (mode)
   {
   case 0:
-    if (currentTime - startTime >= 5000)
+    if (currentTime - startTime >= 1000)
     {
-      affichage(false);
+      Serial.println("normal");
+      // affichage(false);
       startTime = currentTime;
     }
     break;
   case 1:
-    if (currentTime - startTime >= 5000)
+    if (currentTime - startTime >= 1000)
     {
-      affichage(true);
+      Serial.println("eco");
+      // affichage(true);
       startTime = currentTime;
     }
     break;
