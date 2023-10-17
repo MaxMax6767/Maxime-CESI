@@ -335,10 +335,6 @@ void ecriture()
       }
       else
       {
-        goto newfile;
-      }
-      else
-      {
         // Ecriture des données
         prnt(dataFile);
       }
