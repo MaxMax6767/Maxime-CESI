@@ -102,6 +102,7 @@ void switchg() // Fonction de changement de mode quand appui sur le boutton vert
     delayMicroseconds(1000); // Attente de 1ms (en microsecondes car delay() ne fonctionne pas dans une interruption)
     if (i >= 5000)           // Si i est supérieur à 5000 (5s) alors on change de mode
     {
+      i = 0;
       if (mode == 1) // Si on est en mode standard, on passe en mode Eco et on mets la led en bleu
       {
         mode = 2;
@@ -128,6 +129,7 @@ void switchr() // Fonction de changement de mode quand appui sur le boutton roug
     delayMicroseconds(1000); // Attente de 1ms (en microsecondes car delay() ne fonctionne pas dans une interruption)
     if (i >= 5000)           // Si i est supérieur à 5000 (5s) alors on change de mode
     {
+      i = 0;
       if (mode == 0) // Si on est en mode initialisation, on passe en mode config et on mets la led en jaune (A changer parce que c'est pas la bonne couleur)
       {
         mode = 3;
@@ -149,8 +151,6 @@ void switchr() // Fonction de changement de mode quand appui sur le boutton roug
         mode = modep;
         leds.setColorRGB(0, 0, (mode == 1) ? 150 : 0, (mode == 1) ? 0 : 150);
       }
-      while (digitalRead(r) == LOW)
-        ;
       break;
     }
   }
@@ -201,12 +201,8 @@ String getGps() // Fonction de récupération des données GPS
         }
       }
     }
-    // Récupération de la latitude & longitude depuis les données GPS en précisant lequel est Nord et lequel est Est
-    String latitude = gpsData.substring(18, 27) + "°" + gpsData.substring(28, 29);
-    String longitude = gpsData.substring(30, 40) + "°" + gpsData.substring(41, 42);
-
     // Si l'acquisition des données à ratée (ex: pas de signal GPS), on réinitialise les données à vide
-    return (latitude.startsWith(",,,", 0)) ? "" : latitude + " " + longitude; // Retourne les données GPS
+    return gpsData; // Retourne les données GPS
   }
   else // Sinon on récupère les données GPS une fois sur deux
   {
@@ -296,7 +292,7 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
     File dataFile = SD.open(work, FILE_WRITE);
 
     // Check if file size is too large
-    if (dataFile.size() >= FILE_MAX_SIZE) // Si le fichier dépasse la taille maximale
+    if (dataFile.size() >= 100) // Si le fichier dépasse la taille maximale
     {
       // Close file
       dataFile.close();
@@ -320,10 +316,10 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
   else
   {
   ecriture:
-    File newDataFile = SD.open(work, FILE_WRITE); // Création du fichier
-    newDataFile.println("Temps");                 // Ecriture de l'entête
-    prnt(newDataFile);                            // Ecriture des données
-    newDataFile.close();                          // Fermeture du fichier
+    File newDataFile = SD.open(work, FILE_WRITE);                                        // Création du fichier
+    newDataFile.println("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression"); // Ecriture de l'entête
+    prnt(newDataFile);                                                                   // Ecriture des données
+    newDataFile.close();                                                                 // Fermeture du fichier
   }
 }
 
