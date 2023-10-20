@@ -53,7 +53,7 @@ int HYGR_MAXT = 50;
 bool PRESSURE = 1;
 int PRESSURE_MIN = 850;
 int PRESSURE_MAX = 1080;
-unsigned long LOG_INTERVAL = 10;
+unsigned long LOG_INTERVAL = 40;
 uint32_t FILE_MAX_SIZE = 4096;
 int TIMEOUT = 30;
 /*
