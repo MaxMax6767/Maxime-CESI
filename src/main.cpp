@@ -14,30 +14,21 @@ ChainableLED leds(7, 8, 1);                    // LED library
 
 unsigned long startTime = millis(); // Temps de démarrage du programme
 
-int mode = 0; // Enum
-/*
-+---+--------------------------------+
-| 0 | Mode initialisation            |
-+---+--------------------------------+
-| 1 | Mode Normal                    |
-+---+--------------------------------+
-| 2 | Mode Eco                       |
-+---+--------------------------------+
-| 3 | Mode Config                    |
-+---+--------------------------------+
-| 4 | Mode Maintenance               |
-+---+--------------------------------+
-| 5 | Mode Erreur SD Pleine          |
-+---+--------------------------------+
-| 6 | Mode Erreur enregistrement SD  |
-+---+--------------------------------+
-| 7 | Mode Erreur Valeur Hors champs |
-+---+--------------------------------+
-| 8 | Mode Erreur GPS                |
-+---+--------------------------------+
-| 9 | Mode Erreur capteur            |
-+---+--------------------------------+
-*/
+typedef enum
+{
+  initialisation,
+  normal,
+  eco,
+  config,
+  maintenance,
+  erreur_sd,
+  erreur_enregistrement,
+  erreur_valeur,
+  erreur_gps,
+  erreur_capteur
+} modes;
+
+modes mode = initialisation; // Mode de fonctionnement
 
 bool LUMIN;
 int LUMIN_LOW;
@@ -100,15 +91,23 @@ void switchg() // Fonction de changement de mode quand appui sur le boutton vert
     if (i >= 5000)           // Si i est supérieur à 5000 (5s) alors on change de mode
     {
       i = 0;
-      if (mode == 1) // Si on est en mode standard, on passe en mode Eco et on mets la led en bleu
+      switch (mode)
       {
-        mode = 2;
+      case config:
+      case maintenance:
+      case erreur_sd:
+      case erreur_enregistrement:
+      case erreur_valeur:
+      case erreur_gps:
+      case erreur_capteur:
+      case initialisation:
+        break;
+      case normal:
+        mode = eco;
         leds.setColorRGB(0, 0, 0, 150);
         break;
-      }
-      else if (mode == 2) // Si on est en mode Eco, on passe en mode standard et on mets la led en vert
-      {
-        mode = 1;
+      case eco:
+        mode = normal;
         leds.setColorRGB(0, 0, 150, 0);
         break;
       }
@@ -118,7 +117,7 @@ void switchg() // Fonction de changement de mode quand appui sur le boutton vert
 
 void switchr() // Fonction de changement de mode quand appui sur le boutton rouge
 {
-  static int modep; // Variable de stockage du mode précédent
+  modes modep;
   int i = 0;
   while (digitalRead(2) == LOW) // Tant que le boutton est appuyé
   {
@@ -127,28 +126,33 @@ void switchr() // Fonction de changement de mode quand appui sur le boutton roug
     if (i >= 5000)           // Si i est supérieur à 5000 (5s) alors on change de mode
     {
       i = 0;
-      if (mode == 0) // Si on est en mode initialisation, on passe en mode config et on mets la led en jaune (A changer parce que c'est pas la bonne couleur)
+      switch (mode)
       {
-        mode = 3;
-        leds.setColorRGB(0, 150, 0, 0);
-      }
-      else if (mode == 3) // Si on est en mode config, on passe en mode standard et on mets la led en vert
-      {
-        mode = 1;
-        leds.setColorRGB(0, 0, 150, 0);
-      }
-      else if (mode == 1 || mode == 2) // Si on est en mode standard ou eco, on passe en mode maintenance et on mets la led en jaune
-      {
-        modep = mode;
-        mode = 4;
+      case erreur_sd:
+      case erreur_enregistrement:
+      case erreur_valeur:
+      case erreur_gps:
+      case erreur_capteur:
+        break;
+      case initialisation:
+        mode = config;
         leds.setColorRGB(0, 150, 150, 0);
-      }
-      else if (mode == 4) // Si on est en mode maintenance, on repasse en mode standard ou eco en fonction du mode précédent et on mets la led en vert ou bleu
-      {
+        break;
+      case config:
+        mode = normal;
+        leds.setColorRGB(0, 0, 150, 0);
+        break;
+      case normal:
+      case eco:
+        modep = mode;
+        mode = maintenance;
+        leds.setColorRGB(0, 150, 0, 0);
+        break;
+      case maintenance:
         mode = modep;
-        leds.setColorRGB(0, 0, (mode == 1) ? 150 : 0, (mode == 1) ? 0 : 150);
+        leds.setColorRGB(0, 0, (modep == normal) ? 150 : 0, (modep == normal) ? 0 : 150);
+        break;
       }
-      break;
     }
   }
 }
@@ -313,7 +317,7 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
 
   if (SD.freeClusterCount() < 1) // Si la carte SD est pleine (ou presque) on passe en mode erreur
   {
-    mode = 5;
+    mode = erreur_sd;
     erreur(150, 0, 0, 0, 150, 0, 2000);
   }
   if (SD.exists(work)) // Si le fichier existe déjà on l'ouvre
@@ -357,38 +361,73 @@ void loop()
 {
   unsigned long currentTime = millis(); // Récupération du temps actuel
 
-  if (mode == 0 && currentTime - startTime >= 5000) // Si on est en mode initialisation et que le temps écoulé est supérieur à 5s
+  switch (mode)
   {
-    mode = 1;                       // On passe en mode standard
-    leds.setColorRGB(0, 0, 150, 0); // On allume la led en vert
-    startTime = currentTime;        // On réinitialise le temps de démarrage
+  case initialisation:
+    if ((currentTime - startTime) >= 5000)
+    {
+      mode = normal;
+      leds.setColorRGB(0, 0, 150, 0);
+      startTime = currentTime;
+    }
+    break;
+  case normal:
+    if ((currentTime - startTime) >= 5000)
+    {
+      ecriture(); // On les écrit dans le fichier
+      Serial.println("Normal");
+      startTime = currentTime; // On réinitialise le temps de démarrage
+    }
+    break;
+  case eco:
+    if ((currentTime - startTime) >= 5000)
+    {
+      ecriture(); // On les écrit dans le fichier
+      Serial.println("Eco");
+      startTime = currentTime; // On réinitialise le temps de démarrage
+    }
+    break;
+  case config:
+    if ((currentTime - startTime) >= 5000)
+    {
+      Serial.println("Config");
+      startTime = currentTime; // On réinitialise le temps de démarrage
+    }
+    break;
+  case maintenance:
+    if ((currentTime - startTime) >= 5000)
+    {
+      Serial.println("Maintenance");
+      climateSensor.takeForcedMeasurement();
+      clock.getTime();
+      Serial.print(String(clock.hour) + F(":") + String(clock.minute, DEC) + F(":") + String(clock.second, DEC)); // Ecriture de l'heure
+      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
+      Serial.print(getGps());                                                                                     // Ecriture des données GPS
+      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
+      Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                     // Ecriture de la luminosité
+      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
+      Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));      // Ecriture de la température
+      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
+      Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                  // Ecriture de l'humidité
+      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
+      Serial.println(getCapteur(PRESSURE, climateSensor.getPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX));     // Ecriture de la pression
+      startTime = currentTime;                                                                                    // On réinitialise le temps de démarrage
+    }
+    break;
+  case erreur_sd:
+    erreur(150, 0, 0, 0, 150, 0, 2000);
+    break;
+  case erreur_enregistrement:
+    erreur(150, 0, 0, 0, 150, 0, 2000);
+    break;
+  case erreur_valeur:
+    erreur(150, 0, 0, 0, 150, 0, 2000);
+    break;
+  case erreur_gps:
+    erreur(150, 0, 0, 0, 150, 0, 2000);
+    break;
+  case erreur_capteur:
+    erreur(150, 0, 0, 0, 150, 0, 2000);
+    break;
   }
-  else if ((mode == 1 || mode == 2) && currentTime - startTime >= 1000) // Si on est en mode standard ou eco et que le temps écoulé est supérieur à 1s
-  {
-    ecriture();              // On les écrit dans le fichier
-    startTime = currentTime; // On réinitialise le temps de démarrage
-  }
-  else if (mode == 3 && currentTime - startTime >= 1000) // Si on est en mode config et que le temps écoulé est supérieur à 1s
-  {
-    startTime = currentTime;
-  }
-  else if (mode == 4 && currentTime - startTime >= 5000) // Si on est en mode maintenance et que le temps écoulé est suppérieur à 5s
-  {
-
-    climateSensor.takeForcedMeasurement();
-    clock.getTime();
-    Serial.print(String(clock.hour) + F(":") + String(clock.minute, DEC) + F(":") + String(clock.second, DEC)); // Ecriture de l'heure
-    Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-    Serial.print(getGps());                                                                                     // Ecriture des données GPS
-    Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-    Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                     // Ecriture de la luminosité
-    Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-    Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));      // Ecriture de la température
-    Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-    Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                  // Ecriture de l'humidité
-    Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-    Serial.println(getCapteur(PRESSURE, climateSensor.getPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX));     // Ecriture de la pression
-    startTime = currentTime;
-  }
-  delay(1);
 }
