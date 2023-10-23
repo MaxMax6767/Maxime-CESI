@@ -11,7 +11,6 @@ DS1307 clock;                                  // RTC library
 SoftwareSerial SoftSerial(0, 1);               // RX, TX
 ForcedClimate climateSensor = ForcedClimate(); // BME280 library
 ChainableLED leds(7, 8, 1);                    // LED library
-bool t;                                        // GPS variable
 unsigned long startTime = millis();            // Temps de démarrage du programme
 
 int mode = 0;
@@ -188,7 +187,7 @@ String getGps() // Fonction de récupération des données GPS
     String gpsData = "";        // Variable de stockage des données GPS
     if (SoftSerial.available()) // Si le port série du GPS est disponible
     {
-      t = true;
+      bool t = true;
       while (t)
       {
         gpsData = SoftSerial.readStringUntil('\n'); // Lecture des données GPS
