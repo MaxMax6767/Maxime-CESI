@@ -11,9 +11,10 @@ DS1307 clock;                                  // RTC library
 SoftwareSerial SoftSerial(0, 1);               // RX, TX
 ForcedClimate climateSensor = ForcedClimate(); // BME280 library
 ChainableLED leds(7, 8, 1);                    // LED library
-unsigned long startTime = millis();            // Temps de démarrage du programme
 
-int mode = 0;
+unsigned long startTime = millis(); // Temps de démarrage du programme
+
+int mode = 0; // Enum
 /*
 +---+--------------------------------+
 | 0 | Mode initialisation            |
@@ -38,21 +39,21 @@ int mode = 0;
 +---+--------------------------------+
 */
 
-bool LUMIN = 1;
-int LUMIN_LOW = 255;
-int LUMIN_HIGH = 768;
-bool TEMP_AIR = 1;
-int MIN_TEMP_AIR = -10;
-int MAX_TEMP_AIR = 60;
-bool HYGR = 1;
-int HYGR_MINT = 0;
-int HYGR_MAXT = 50;
-bool PRESSURE = 1;
-int PRESSURE_MIN = 850;
-int PRESSURE_MAX = 1080;
-unsigned long LOG_INTERVAL = 40;
-uint32_t FILE_MAX_SIZE = 4096;
-int TIMEOUT = 30;
+bool LUMIN;
+int LUMIN_LOW;
+int LUMIN_HIGH;
+bool TEMP_AIR;
+int MIN_TEMP_AIR;
+int MAX_TEMP_AIR;
+bool HYGR;
+int HYGR_MINT;
+int HYGR_MAXT;
+bool PRESSURE;
+int PRESSURE_MIN;
+int PRESSURE_MAX;
+unsigned long LOG_INTERVAL;
+uint32_t FILE_MAX_SIZE;
+int TIMEOUT;
 /*
 +-----------------+-------------------+-------------------+--------------------------------------------------+
 | Variable       | Ensemble de valeur | Valeur par défaut | Description                                      |
@@ -174,6 +175,40 @@ void setup()
 
   attachInterrupt(digitalPinToInterrupt(3), switchg, LOW); // Interruption sur le boutton vert
   attachInterrupt(digitalPinToInterrupt(2), switchr, LOW); // Interruption sur le boutton rouge
+
+  // Lecture de la config depuis l'EEPROM
+  EEPROM.get(0, LUMIN);
+  EEPROM.get(1, LUMIN_LOW);
+  EEPROM.get(3, LUMIN_HIGH);
+  EEPROM.get(5, TEMP_AIR);
+  EEPROM.get(6, MIN_TEMP_AIR);
+  EEPROM.get(8, MAX_TEMP_AIR);
+  EEPROM.get(10, HYGR);
+  EEPROM.get(11, HYGR_MINT);
+  EEPROM.get(13, HYGR_MAXT);
+  EEPROM.get(15, PRESSURE);
+  EEPROM.get(16, PRESSURE_MIN);
+  EEPROM.get(18, PRESSURE_MAX);
+  EEPROM.get(20, LOG_INTERVAL);
+  EEPROM.get(24, FILE_MAX_SIZE);
+  EEPROM.get(28, TIMEOUT);
+
+  // Ecriture de la config par défaut dans L'EEPROM
+  EEPROM.put(30, 1);
+  EEPROM.put(31, 255);
+  EEPROM.put(33, 768);
+  EEPROM.put(35, 1);
+  EEPROM.put(36, -10);
+  EEPROM.put(38, 60);
+  EEPROM.put(40, 1);
+  EEPROM.put(41, 0);
+  EEPROM.put(43, 50);
+  EEPROM.put(45, 1);
+  EEPROM.put(46, 850);
+  EEPROM.put(48, 1080);
+  EEPROM.put(50, 10);
+  EEPROM.put(54, 4096);
+  EEPROM.put(58, 30);
 
   leds.setColorRGB(0, 150, 150, 150); // LED blanche au démarrage
 }
