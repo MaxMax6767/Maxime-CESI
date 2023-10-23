@@ -1,16 +1,16 @@
 #include <SoftwareSerial.h> // Librairie pour le port série du GPS
 #include <Wire.h>           // Librairie pour le bus I2C
-#include "DS1307.h"         // Librairie pour l'horloge
-#include <forcedClimate.h>  // Librairie pour le capteur BME280
-#include <ChainableLED.h>   // Librairie pour la LED
-#include <SdFat.h>          // Librairie pour la carte SD
-#include <EEPROM.h>         // Librairie pour l'EEPROM
+#include <RTClib.h>
+#include <forcedClimate.h> // Librairie pour le capteur BME280
+#include <ChainableLED.h>  // Librairie pour la LED
+#include <SdFat.h>         // Librairie pour la carte SD
+#include <EEPROM.h>        // Librairie pour l'EEPROM
 
 SdFat SD;                                      // SD card library
-DS1307 clock;                                  // RTC library
 SoftwareSerial SoftSerial(0, 1);               // RX, TX
 ForcedClimate climateSensor = ForcedClimate(); // BME280 library
 ChainableLED leds(7, 8, 1);                    // LED library
+RTC_DS1307 rtc;                                // Utilisation du module DS1307 avec RTCLib
 
 unsigned long startTime = millis(); // Temps de démarrage du programme
 
@@ -170,12 +170,13 @@ void setup()
     while (1)
       ;
   }
-
-  clock.begin();                 // Initialisation de l'horloge
-  clock.fillByYMD(2023, 10, 16); // Définition de la date (Année, Mois, Jour)
-  clock.fillByHMS(15, 00, 00);   // Définition de l'heure (Heure, Minute, Seconde)
-  clock.fillDayOfWeek(SAT);      // Définition du jour de la semaine (MON, TUE, WED, THU, FRI, SAT, SUN)
-  clock.setTime();               // Envoi de la date et de l'heure à l'horloge
+  if (!rtc.begin())
+  { // Initialisation du module RTC
+    Serial.println(F("RTC not found"));
+    while (1)
+      ;
+  }
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
   attachInterrupt(digitalPinToInterrupt(3), switchg, LOW); // Interruption sur le boutton vert
   attachInterrupt(digitalPinToInterrupt(2), switchr, LOW); // Interruption sur le boutton rouge
@@ -289,25 +290,26 @@ float getCapteur(bool o, float m, int l, int h) // Fonction de récupération de
 
 String nom(int i) // Fonction de création du nom du fichier
 {
-  return String(clock.year) + String(clock.month) + String(clock.dayOfMonth) + "_" + String(i) + ".log"; // Retourne le nom du fichier
+  DateTime now = rtc.now();
+  return String(now.year()) + String(now.month()) + String(now.month()) + "_" + String(i) + ".log"; // Retourne le nom du fichier
 }
 
 void prnt(File f) // Fonction d'écriture dans le fichier
 {
   climateSensor.takeForcedMeasurement();
-  clock.getTime();
-  f.print(String(clock.hour) + F(":") + String(clock.minute, DEC) + F(":") + String(clock.second, DEC)); // Ecriture de l'heure
-  f.print(F(" ; "));                                                                                     // Ecriture du séparateur
-  f.print(getGps());                                                                                     // Ecriture des données GPS
-  f.print(F(" ; "));                                                                                     // Ecriture du séparateur
-  f.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                     // Ecriture de la luminosité
-  f.print(F(" ; "));                                                                                     // Ecriture du séparateur
-  f.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));      // Ecriture de la température
-  f.print(F(" ; "));                                                                                     // Ecriture du séparateur
-  f.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                  // Ecriture de l'humidité
-  f.print(F(" ; "));                                                                                     // Ecriture du séparateur
-  f.println(getCapteur(PRESSURE, climateSensor.getPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX));     // Ecriture de la pression
-  f.close();                                                                                             // Fermeture du fichier
+  DateTime now = rtc.now();
+  f.print(String(now.hour()) + F(":") + String(now.minute()) + F(":") + String(now.second()));       // Ecriture de l'heure
+  f.print(F(" ; "));                                                                                 // Ecriture du séparateur
+  f.print(getGps());                                                                                 // Ecriture des données GPS
+  f.print(F(" ; "));                                                                                 // Ecriture du séparateur
+  f.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                 // Ecriture de la luminosité
+  f.print(F(" ; "));                                                                                 // Ecriture du séparateur
+  f.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));  // Ecriture de la température
+  f.print(F(" ; "));                                                                                 // Ecriture du séparateur
+  f.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));              // Ecriture de l'humidité
+  f.print(F(" ; "));                                                                                 // Ecriture du séparateur
+  f.println(getCapteur(PRESSURE, climateSensor.getPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX)); // Ecriture de la pression
+  f.close();                                                                                         // Fermeture du fichier
 }
 
 void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la carte SD
@@ -399,19 +401,19 @@ void loop()
     {
       Serial.println("Maintenance");
       climateSensor.takeForcedMeasurement();
-      clock.getTime();
-      Serial.print(String(clock.hour) + F(":") + String(clock.minute, DEC) + F(":") + String(clock.second, DEC)); // Ecriture de l'heure
-      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-      Serial.print(getGps());                                                                                     // Ecriture des données GPS
-      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-      Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                     // Ecriture de la luminosité
-      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-      Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));      // Ecriture de la température
-      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-      Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                  // Ecriture de l'humidité
-      Serial.print(F(" ; "));                                                                                     // Ecriture du séparateur
-      Serial.println(getCapteur(PRESSURE, climateSensor.getPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX));     // Ecriture de la pression
-      startTime = currentTime;                                                                                    // On réinitialise le temps de démarrage
+      DateTime now = rtc.now();
+      Serial.print(String(now.hour()) + F(":") + String(now.minute()) + F(":") + String(now.second()));       // Ecriture de l'heure
+      Serial.print(F(" ; "));                                                                                 // Ecriture du séparateur
+      Serial.print(getGps());                                                                                 // Ecriture des données GPS
+      Serial.print(F(" ; "));                                                                                 // Ecriture du séparateur
+      Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                 // Ecriture de la luminosité
+      Serial.print(F(" ; "));                                                                                 // Ecriture du séparateur
+      Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));  // Ecriture de la température
+      Serial.print(F(" ; "));                                                                                 // Ecriture du séparateur
+      Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));              // Ecriture de l'humidité
+      Serial.print(F(" ; "));                                                                                 // Ecriture du séparateur
+      Serial.println(getCapteur(PRESSURE, climateSensor.getPressure() / 100.0F, PRESSURE_MIN, PRESSURE_MAX)); // Ecriture de la pression
+      startTime = currentTime;                                                                                // On réinitialise le temps de démarrage
     }
     break;
   case erreur_sd:
