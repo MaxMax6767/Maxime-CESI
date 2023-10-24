@@ -1,0 +1,88 @@
+void setup()
+{
+    Serial.begin(9600); // Initialise la communication série à 9600 bauds
+}
+
+void loop()
+{
+    if (Serial.available() > 0)
+    {
+        // Si des données sont disponibles sur la liaison série
+
+        String input = Serial.readStringUntil('\n'); // Lire la ligne de commande
+        if (input.length() > 0)
+        {
+            // Vérifier si la commande est non vide
+            int equalsIndex = input.indexOf('=');
+            String command;
+            int argument = 0;
+            if (equalsIndex != -1)
+            {
+                // Si le caractère '=' est présent dans la commande
+                command = input.substring(0, equalsIndex);
+                argument = input.substring(equalsIndex + 1).toInt();
+            }
+            else
+            {
+                // Si la commande ne contient pas d'argument
+                command = input;
+            }
+
+            // Exécutez la commande avec l'argument
+            executeCommand(command, argument);
+        }
+    }
+}
+
+void executeCommand(String command, int argument)
+{
+    // Utilisez un switch case pour gérer différentes commandes
+    if (command == "RESET")
+    {
+        // Logique pour la commande "RESET" ici
+        Serial.println("Reset Effectue");
+    }
+    else if (command == "LUMIN")
+    {
+        // Logique pour la commande "LUMIN" ici
+        Serial.print("Commande LUMIN reçue");
+        if (argument != 0)
+        {
+            Serial.print(", Argument : ");
+            Serial.println(argument);
+        }
+        else
+        {
+            Serial.println(" (sans argument)");
+        }
+    }
+    else if (command == "LUMIN_MIN")
+    {
+        // Logique pour la commande "LUMIN_MIN" ici
+        Serial.print("Commande LUMIN_MIN reçue");
+        if (argument != 0)
+        {
+            Serial.print(", Argument : ");
+            Serial.println(argument);
+        }
+        else
+        {
+            Serial.println(" (sans argument)");
+        }
+    }
+    else
+    {
+        // Commande inconnue
+        Serial.print("Commande inconnue : ");
+        Serial.print(command);
+        if (argument != 0)
+        {
+            Serial.print(", Argument : ");
+            Serial.println(argument);
+        }
+        else
+        {
+            Serial.println(" (sans argument)");
+        }
+    }
+}
