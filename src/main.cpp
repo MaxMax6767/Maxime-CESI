@@ -6,7 +6,7 @@
 #include <EEPROM.h>        // Librairie pour l'EEPROM
 
 SdFat SD;                                      // SD card library
-AltSoftSerial altSerial;                       // SoftwareSerial library pour le GPS
+AltSoftSerial gpsSerial(8, 9);                 // GPS library
 ForcedClimate climateSensor = ForcedClimate(); // BME280 library
 ChainableLED leds(7, 8, 1);                    // LED library
 RTC_DS1307 rtc;                                // Utilisation du module DS1307 avec RTCLib
@@ -159,7 +159,7 @@ void switchr() // Fonction de changement de mode quand appui sur le boutton roug
 void setup()
 {
   Serial.begin(9600);    // Initialisation du port série
-  altSerial.begin(9600); // Initialisation du port série du GPS
+  gpsSerial.begin(9600); // Initialisation du port série du GPS
   leds.init();           // Initialisation de la LED
   climateSensor.begin(); // Initialisation du capteur BME280
   if (!SD.begin(4))      // Initialisation de la carte SD
@@ -222,21 +222,23 @@ String getGps() // Fonction de récupération des données GPS
   if (mode != 2)   // Si on est pas en mode Eco, on récupère les données GPS
   {
   mesure:
-    String gpsData = "";       // Variable de stockage des données GPS
-    if (altSerial.available()) // Si le port série du GPS est disponible
+    String trameGGA = "";
+
+    // Boucle de lecture des données GPS (On attends d'avoir la tramme GGA)
+    while (trameGGA.indexOf("$GPGGA") == -1)
     {
-      bool t = true;
-      while (t)
+      // Lecture d'une ligne de données GPS
+      String trameGGA = gpsSerial.readStringUntil('\n');
+
+      // Si la ligne est valide, on la parse
+      if (trameGGA.startsWith("$GPGGA"))
       {
-        gpsData = altSerial.readStringUntil('\n'); // Lecture des données GPS
-        if (gpsData.startsWith(F("$GPGGA"), 0))    // Si la ligne démare avec $GPGAA, il s'agit d'une mesure du GPS
-        {
-          t = false;
-        }
+        return trameGGA;
       }
     }
-    return gpsData; // Retourne les données GPS
+    // Retour de la trame de sortie
   }
+
   else // Sinon on récupère les données GPS une fois sur deux
   {
     if (gps)
@@ -524,19 +526,23 @@ void loop()
     if ((currentTime - startTime) >= 5000)
     {
       Serial.println("Maintenance");
-      climateSensor.takeForcedMeasurement();
-      Serial.print(String(rtc.now().hour()) + F(":") + String(rtc.now().minute()) + F(":") + String(rtc.now().second())); // Ecriture de l'heure
-      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      Serial.print(getGps());                                                                                             // Ecriture des données GPS
-      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                             // Ecriture de la luminosité
-      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));              // Ecriture de la température
-      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                          // Ecriture de l'humidité
-      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      Serial.println(getCapteur(PRESSURE, climateSensor.getPressure(), PRESSURE_MIN, PRESSURE_MAX));                      // Ecriture de la pression
-      startTime = currentTime;                                                                                            // On réinitialise le temps de démarrage
+      while (true)
+      {
+        gpsSerial.read();
+      }
+      // climateSensor.takeForcedMeasurement();
+      // Serial.print(String(rtc.now().hour()) + F(":") + String(rtc.now().minute()) + F(":") + String(rtc.now().second())); // Ecriture de l'heure
+      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      // Serial.print(getGps());                                                                                             // Ecriture des données GPS
+      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      // Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                             // Ecriture de la luminosité
+      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      // Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));              // Ecriture de la température
+      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      // Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                          // Ecriture de l'humidité
+      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      // Serial.println(getCapteur(PRESSURE, climateSensor.getPressure(), PRESSURE_MIN, PRESSURE_MAX));                      // Ecriture de la pression
+      // startTime = currentTime;                                                                                            // On réinitialise le temps de démarrage
     }
     break;
   case erreur_sd:
