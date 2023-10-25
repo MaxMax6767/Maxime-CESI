@@ -1,13 +1,12 @@
-#include <SoftwareSerial.h> // Librairie pour le port série du GPS
-#include <Wire.h>           // Librairie pour le bus I2C
-#include <RTClib.h>         // Librairie pour le module RTC
-#include <forcedClimate.h>  // Librairie pour le capteur BME280
-#include <ChainableLED.h>   // Librairie pour la LED
-#include <SdFat.h>          // Librairie pour la carte SD
-#include <EEPROM.h>         // Librairie pour l'EEPROM
+#include <AltSoftSerial.h> // Librairie pour le port série du GPS
+#include <RTClib.h>        // Librairie pour le module RTC
+#include <forcedClimate.h> // Librairie pour le capteur BME280
+#include <ChainableLED.h>  // Librairie pour la LED
+#include <SdFat.h>         // Librairie pour la carte SD
+#include <EEPROM.h>        // Librairie pour l'EEPROM
 
 SdFat SD;                                      // SD card library
-SoftwareSerial SoftSerial(0, 1);               // RX, TX
+AltSoftSerial altSerial;                       // SoftwareSerial library pour le GPS
 ForcedClimate climateSensor = ForcedClimate(); // BME280 library
 ChainableLED leds(7, 8, 1);                    // LED library
 RTC_DS1307 rtc;                                // Utilisation du module DS1307 avec RTCLib
@@ -159,11 +158,11 @@ void switchr() // Fonction de changement de mode quand appui sur le boutton roug
 
 void setup()
 {
-  Serial.begin(9600);     // Initialisation du port série
-  leds.init();            // Initialisation de la LED
-  SoftSerial.begin(9600); // Initialisation du port série du GPS
-  climateSensor.begin();  // Initialisation du capteur BME280
-  if (!SD.begin(4))       // Initialisation de la carte SD
+  Serial.begin(9600);    // Initialisation du port série
+  altSerial.begin(9600); // Initialisation du port série du GPS
+  leds.init();           // Initialisation de la LED
+  climateSensor.begin(); // Initialisation du capteur BME280
+  if (!SD.begin(4))      // Initialisation de la carte SD
   {
     Serial.println(F("Card failed, or not present"));
     while (1)
@@ -223,21 +222,19 @@ String getGps() // Fonction de récupération des données GPS
   if (mode != 2)   // Si on est pas en mode Eco, on récupère les données GPS
   {
   mesure:
-    String gpsData = "";        // Variable de stockage des données GPS
-    if (SoftSerial.available()) // Si le port série du GPS est disponible
+    String gpsData = "";       // Variable de stockage des données GPS
+    if (altSerial.available()) // Si le port série du GPS est disponible
     {
       bool t = true;
       while (t)
       {
-        gpsData = SoftSerial.readStringUntil('\n'); // Lecture des données GPS
-        if (gpsData.startsWith(F("$GPGGA"), 0))     // Si la ligne démare avec $GPGAA, il s'agit d'une mesure du GPS
+        gpsData = altSerial.readStringUntil('\n'); // Lecture des données GPS
+        if (gpsData.startsWith(F("$GPGGA"), 0))    // Si la ligne démare avec $GPGAA, il s'agit d'une mesure du GPS
         {
           t = false;
         }
       }
     }
-    // Si l'acquisition des données à ratée (ex: pas de signal GPS), on réinitialise les données à vide
-    Serial.println(gpsData);
     return gpsData; // Retourne les données GPS
   }
   else // Sinon on récupère les données GPS une fois sur deux
