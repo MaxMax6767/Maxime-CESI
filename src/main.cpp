@@ -1,14 +1,15 @@
-#include <AltSoftSerial.h> // Librairie pour le port série du GPS
-#include <RTClib.h>        // Librairie pour le module RTC
-#include <forcedClimate.h> // Librairie pour le capteur BME280
-#include <ChainableLED.h>  // Librairie pour la LED
-#include <SdFat.h>         // Librairie pour la carte SD
-#include <EEPROM.h>        // Librairie pour l'EEPROM
+#include <SoftwareSerial.h> // Librairie pour le port série du GPS
+#include <Wire.h>           // Librairie pour le bus I2C
+#include <RTClib.h>         // Librairie pour le module RTC
+#include <forcedClimate.h>  // Librairie pour le capteur BME280
+#include <ChainableLED.h>   // Librairie pour la LED
+#include <SdFat.h>          // Librairie pour la carte SD
+#include <EEPROM.h>         // Librairie pour l'EEPROM
 
 SdFat SD;                                      // SD card library
-AltSoftSerial gpsSerial(8, 9);                 // GPS library
+SoftwareSerial SoftSerial(8, 9);               // RX, TX
 ForcedClimate climateSensor = ForcedClimate(); // BME280 library
-ChainableLED leds(7, 8, 1);                    // LED library
+ChainableLED leds(6, 7, 1);                    // LED library
 RTC_DS1307 rtc;                                // Utilisation du module DS1307 avec RTCLib
 
 unsigned long startTime = millis(); // Temps de démarrage du programme
@@ -158,11 +159,11 @@ void switchr() // Fonction de changement de mode quand appui sur le boutton roug
 
 void setup()
 {
-  Serial.begin(9600);    // Initialisation du port série
-  gpsSerial.begin(9600); // Initialisation du port série du GPS
-  leds.init();           // Initialisation de la LED
-  climateSensor.begin(); // Initialisation du capteur BME280
-  if (!SD.begin(4))      // Initialisation de la carte SD
+  Serial.begin(9600);     // Initialisation du port série
+  leds.init();            // Initialisation de la LED
+  SoftSerial.begin(9600); // Initialisation du port série du GPS
+  climateSensor.begin();  // Initialisation du capteur BME280
+  if (!SD.begin(4))       // Initialisation de la carte SD
   {
     Serial.println(F("Card failed, or not present"));
     while (1)
@@ -222,23 +223,22 @@ String getGps() // Fonction de récupération des données GPS
   if (mode != 2)   // Si on est pas en mode Eco, on récupère les données GPS
   {
   mesure:
-    String trameGGA = "";
-
-    // Boucle de lecture des données GPS (On attends d'avoir la tramme GGA)
-    while (trameGGA.indexOf("$GPGGA") == -1)
+    String gpsData = "";        // Variable de stockage des données GPS
+    if (SoftSerial.available()) // Si le port série du GPS est disponible
     {
-      // Lecture d'une ligne de données GPS
-      String trameGGA = gpsSerial.readStringUntil('\n');
-
-      // Si la ligne est valide, on la parse
-      if (trameGGA.startsWith("$GPGGA"))
+      bool t = true;
+      while (t)
       {
-        return trameGGA;
+        gpsData = SoftSerial.readStringUntil('\n'); // Lecture des données GPS
+        if (gpsData.startsWith(F("$GPGGA"), 0))     // Si la ligne démare avec $GPGAA, il s'agit d'une mesure du GPS
+        {
+          t = false;
+        }
       }
     }
-    // Retour de la trame de sortie
+    // Si l'acquisition des données à ratée (ex: pas de signal GPS), on réinitialise les données à vide
+    return gpsData; // Retourne les données GPS
   }
-
   else // Sinon on récupère les données GPS une fois sur deux
   {
     if (gps)
@@ -249,7 +249,7 @@ String getGps() // Fonction de récupération des données GPS
     else
     {
       gps = !gps;
-      return "";
+      return F("");
     }
   }
 }
@@ -312,6 +312,7 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
 {
   static int rev = 0;          // Variable de stockage du numéro de révision du fichier
   static String work = nom(0); // Variable de stockage du nom du fichier
+  Serial.println(work);
 
   if (SD.freeClusterCount() < 1) // Si la carte SD est pleine (ou presque) on passe en mode erreur
   {
@@ -320,6 +321,7 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
   }
   if (SD.exists(work)) // Si le fichier existe déjà on l'ouvre
   {
+    Serial.println(F("Fichier existant"));
     // Open file
     File dataFile = SD.open(work, FILE_WRITE);
 
@@ -348,6 +350,7 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
   else
   {
   ecriture:
+    Serial.println(F("Fichier non existant"));
     File newDataFile = SD.open(work, FILE_WRITE);                                           // Création du fichier
     newDataFile.println(F("Temps ; GPS ; Luminosite ; Temperature ; Humidite ; Pression")); // Ecriture de l'entête
     prnt(newDataFile);                                                                      // Ecriture des données
@@ -357,104 +360,102 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
 
 void executeCommand(String command, int argument)
 {
+  String Tlumin = F("LUMIN");
+  String Tlumin_low = F("LUMIN_LOW");
+  String Tlumin_high = F("LUMIN_HIGH");
+  String Ttemp_air = F("TEMP_AIR");
+  String Tmin_temp_air = F("MIN_TEMP_AIR");
+  String Tmax_temp_air = F("MAX_TEMP_AIR");
+  String Thygr = F("HYGR");
+  String Thygr_mint = F("HYGR_MINT");
+  String Thygr_maxt = F("HYGR_MAXT");
+  String Tpressure = F("PRESSURE");
+  String Tpressure_min = F("PRESSURE_MIN");
+  String Tpressure_max = F("PRESSURE_MAX");
+  String Tlog_interval = F("LOG_INTERVAL");
+  String Tfile_max_size = F("FILE_MAX_SIZE");
+  String Ttimeout = F("TIMEOUT");
+  String Tvariable = F("Variable ");
+  String Tmodifiee = F(" modifiee : ");
+  String Terreur = F("Erreur (valeur non valide ou hors limite)");
+
   // Utilisez un switch case pour gérer différentes commandes
-  if (command == "RESET")
+  if (command == F("RESET"))
   {
     // Reset des variables en RAM
-    int addresses[] = {30, 31, 33, 35, 36, 38, 40, 54, 58};
-    int values[] = {0, 0, 0, 0, 0, 0, 0, 2000, 0};
-    for (int i = 0; i < 9; i++)
-    {
-      EEPROM.get(addresses[i], values[i]);
-      EEPROM.put(addresses[i], values[i]);
-    }
+    EEPROM.get(0, LUMIN);
+    EEPROM.get(1, LUMIN_LOW);
+    EEPROM.get(3, LUMIN_HIGH);
+    EEPROM.get(5, TEMP_AIR);
+    EEPROM.get(6, MIN_TEMP_AIR);
+    EEPROM.get(8, MAX_TEMP_AIR);
+    EEPROM.get(10, HYGR);
+    EEPROM.get(11, HYGR_MINT);
+    EEPROM.get(13, HYGR_MAXT);
+    EEPROM.get(15, PRESSURE);
+    EEPROM.get(16, PRESSURE_MIN);
+    EEPROM.get(18, PRESSURE_MAX);
+    EEPROM.get(20, LOG_INTERVAL);
+    EEPROM.get(24, FILE_MAX_SIZE);
+    EEPROM.get(28, TIMEOUT);
 
     // Affichage utilisateur
     Serial.println(F("Reset Effectue"));
   }
-  else if (command == "LUMIN")
+  else if (command == Tlumin || command == Ttemp_air || command == Thygr || command == Tpressure)
   {
-    if (argument == 0 || argument == 1)
-    {
-      EEPROM.put(0, argument);
-      Serial.print(F("Variable LUMIN modifiee : "));
-      Serial.println(argument);
-    }
-    else
-    {
-      Serial.println(F("Erreur : Valeur incorrecte (Pas d'argument ou argument incorrect)"));
-    }
-  }
-  else if (command == "LUMIN_LOW" || command == "LUMIN_HIGH")
-  {
-    int address = (command == "LUMIN_LOW") ? 1 : 3;
-    if (argument >= 0 && argument <= 1023)
-    {
-      EEPROM.put(address, argument);
-      Serial.print(F("Variable "));
-      Serial.print(command);
-      Serial.print(F(" modifiee : "));
-      Serial.println(argument);
-    }
-    else
-    {
-      Serial.println(F("Erreur : Valeur incorrecte (Pas d'argument ou argument incorrect)"));
-    }
-  }
-  else if (command == "TEMP_AIR" || command == "HYGR" || command == "PRESSURE")
-  {
-    int address = (command == "TEMP_AIR") ? 5 : ((command == "HYGR") ? 10 : 15);
+    int address = (command == Tlumin) ? 0 : ((command == Ttemp_air) ? 5 : ((command == Thygr) ? 10 : 15));
     if (argument == 0 || argument == 1)
     {
       EEPROM.put(address, argument);
-      Serial.print(F("Variable "));
+      Serial.print(Tvariable);
       Serial.print(command);
-      Serial.print(F(" modifiee : "));
+      Serial.print(Tmodifiee);
       Serial.println(argument);
     }
     else
     {
-      Serial.println(F("Erreur : Valeur incorrecte (Pas d'argument ou argument incorrect)"));
+      Serial.println(Terreur);
     }
   }
-  else if (command == "MIN_TEMP_AIR" || command == "MAX_TEMP_AIR" || command == "HYGR_MINT" || command == "HYGR_MAXT" || command == "PRESSURE_MIN" || command == "PRESSURE_MAX")
+  else if (command == Tlumin_low || command == Tlumin_high || command == Tmin_temp_air || command == Tmax_temp_air || command == Thygr_mint || command == Thygr_maxt || command == Tpressure_min || command == Tpressure_max)
   {
-    int address = (command == "MIN_TEMP_AIR") ? 6 : ((command == "MAX_TEMP_AIR") ? 8 : ((command == "HYGR_MINT") ? 11 : ((command == "HYGR_MAXT") ? 13 : ((command == "PRESSURE_MIN") ? 16 : 18))));
-    int minVal = (command == "MIN_TEMP_AIR" || command == "HYGR_MINT" || command == "PRESSURE_MIN") ? -40 : 300;
-    int maxVal = (command == "MAX_TEMP_AIR" || command == "HYGR_MAXT" || command == "PRESSURE_MAX") ? 85 : 1100;
+    int address = (command == Tlumin_low) ? 1 : ((command == Tlumin_high) ? 3 : ((command == Tmin_temp_air) ? 6 : ((command == Tmax_temp_air) ? 8 : ((command == Thygr_mint) ? 11 : ((command == Thygr_maxt) ? 13 : ((command == Tpressure_min) ? 16 : 18))))));
+    int minVal = (command == Tlumin_low) ? 0 : ((command == Tmin_temp_air || command == Thygr_mint || command == Tpressure_min) ? -40 : 300);
+    int maxVal = (command == Tlumin_high) ? 1023 : ((command == Tmax_temp_air || command == Thygr_mint || command == Tpressure_max) ? 85 : 1100);
     if (argument >= minVal && argument <= maxVal)
     {
       EEPROM.put(address, argument);
-      Serial.print(F("Variable "));
+      Serial.print(Tvariable);
       Serial.print(command);
-      Serial.print(F(" modifiee : "));
+      Serial.print(Tmodifiee);
       Serial.println(argument);
     }
     else
     {
-      Serial.println(F("Erreur : Valeur incorrecte (Pas d'argument ou argument incorrect)"));
+      Serial.println(Terreur);
     }
   }
-  else if (command == "LOG_INTERVAL" || command == "FILE_MAX_SIZE" || command == "TIMEOUT")
+  else if (command == Tlog_interval || command == Tfile_max_size || command == Ttimeout)
   {
-    int address = (command == "LOG_INTERVAL") ? 20 : ((command == "FILE_MAX_SIZE") ? 24 : 28);
+    int address = (command == Tlog_interval) ? 20 : ((command == Tfile_max_size) ? 24 : 28);
     if (argument > 0)
     {
       EEPROM.put(address, argument);
-      Serial.print(F("Variable "));
+      Serial.print(Tvariable);
       Serial.print(command);
-      Serial.print(F(" modifiee : "));
+      Serial.print(Tmodifiee);
       Serial.println(argument);
     }
     else
     {
-      Serial.println(F("Erreur : Valeur incorrecte (Argument incorrect)"));
+      Serial.println(Terreur);
     }
   }
   else
   {
     // Commande inconnue
-    Serial.print("Commande inconnue : ");
+    Serial.print(F("Commande inconnue : "));
     Serial.print(command);
   }
 }
@@ -476,16 +477,14 @@ void loop()
   case normal:
     if ((currentTime - startTime) >= 5000)
     {
-      ecriture(); // On les écrit dans le fichier
-      Serial.println("Normal");
+      ecriture();              // On les écrit dans le fichier
       startTime = currentTime; // On réinitialise le temps de démarrage
     }
     break;
   case eco:
     if ((currentTime - startTime) >= 5000)
     {
-      ecriture(); // On les écrit dans le fichier
-      Serial.println("Eco");
+      ecriture();              // On les écrit dans le fichier
       startTime = currentTime; // On réinitialise le temps de démarrage
     }
     break;
@@ -525,24 +524,19 @@ void loop()
   case maintenance:
     if ((currentTime - startTime) >= 5000)
     {
-      Serial.println("Maintenance");
-      while (true)
-      {
-        gpsSerial.read();
-      }
-      // climateSensor.takeForcedMeasurement();
-      // Serial.print(String(rtc.now().hour()) + F(":") + String(rtc.now().minute()) + F(":") + String(rtc.now().second())); // Ecriture de l'heure
-      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      // Serial.print(getGps());                                                                                             // Ecriture des données GPS
-      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      // Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                             // Ecriture de la luminosité
-      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      // Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));              // Ecriture de la température
-      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      // Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                          // Ecriture de l'humidité
-      // Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
-      // Serial.println(getCapteur(PRESSURE, climateSensor.getPressure(), PRESSURE_MIN, PRESSURE_MAX));                      // Ecriture de la pression
-      // startTime = currentTime;                                                                                            // On réinitialise le temps de démarrage
+      climateSensor.takeForcedMeasurement();
+      Serial.print(String(rtc.now().hour()) + F(":") + String(rtc.now().minute()) + F(":") + String(rtc.now().second())); // Ecriture de l'heure
+      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      Serial.print(getGps());                                                                                             // Ecriture des données GPS
+      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      Serial.print(getCapteur(LUMIN, analogRead(A0), LUMIN_LOW, LUMIN_HIGH));                                             // Ecriture de la luminosité
+      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      Serial.print(getCapteur(TEMP_AIR, climateSensor.getTemperatureCelcius(), MIN_TEMP_AIR, MAX_TEMP_AIR));              // Ecriture de la température
+      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      Serial.print(getCapteur(HYGR, climateSensor.getRelativeHumidity(), HYGR_MINT, HYGR_MAXT));                          // Ecriture de l'humidité
+      Serial.print(F(" ; "));                                                                                             // Ecriture du séparateur
+      Serial.println(getCapteur(PRESSURE, climateSensor.getPressure(), PRESSURE_MIN, PRESSURE_MAX));                      // Ecriture de la pression
+      startTime = currentTime;                                                                                            // On réinitialise le temps de démarrage
     }
     break;
   case erreur_sd:
