@@ -1,308 +1,719 @@
-#include <Wire.h>           // Bibliothèque pour l'I2C
-#include <forcedClimate.h>  // Librairie pour le capteur BME280
-#include "DS1307.h"         // Bibliothèque pour la RTC
-#include <ChainableLED.h>   // Librairie pour les LEDs RVB
-#include <SoftwareSerial.h> // Librairie pour le port série logiciel du GPS
-#include <SdFat.h>          // Librairie pour la carte SD
+#include <SoftwareSerial.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <forcedClimate.h>
+#include <ChainableLED.h>
+#include <SdFat.h>
+#include <EEPROM.h>
 
 SdFat SD;
+RTC_DS1307 rtc;
+ForcedClimate climateSensor = ForcedClimate();
+ChainableLED leds(8, 9, 1);
 
-#define NUM_LEDS 5
-SoftwareSerial gpsSerial(8, 9); // Bibliothèque GPS
+SoftwareSerial SoftSerial(6, 7);
 
-const int buttonRedPin PROGMEM = 2;   // Bouton rouge
-const int buttonGreenPin PROGMEM = 3; // Bouton vert
-// const unsigned long longPressDuration = 5000; // Durée nécessaire pour un appui long (en millisecondes)
-volatile bool redButtonPressed = false;
-volatile bool greenButtonPressed = false;
-int lastExecution;
-volatile int mod = 0; // État actuel : 0 = Standard, 1 = Config, 2 = Maintenance, 3 = Eco
-int store_mod = mod;
-const unsigned long startTime = 0;
-ForcedClimate climateSensor = ForcedClimate(); // BME280 library
-#define SEALEVELPRESSURE_HPA (1013.25)         // Set Sea level pressure for altitude
-const int lum_captor_pin PROGMEM = 0;          // Luminosity captor on A2 port on Grove Shield
-DS1307 clock;                                  // Object of DS1307 class RTC Clock on I2C port on Grove Shield
-ChainableLED leds(6, 7, NUM_LEDS);
+int mode_actu = 0; // 1 : Mode Standard | 2 : Mode Maintenance | 3 : Mode Économique | 4 : Mode Configuration
+int mode_prec;
 
-void interruptRed()
-{
-  if (maintien5sec(buttonRedPin))
-  {
-    redButtonPressed = true;
-  }
-}
+int ParametresDefault[15] =
+    {
+        10,   // LOG_INTERVAL,
+        4096, // FILE_MAX_SIZE,
+        30,   // TIMEOUT,
+        1,    // LUMIN,
+        255,  // LUMIN_LOW,
+        768,  // LUMIN_HIGH,
+        1,    // TEMP_AIR,
+        -10,  // MIN_TEMP_AIR,
+        60,   // MAX_TEMP_AIR,
+        1,    // HYGR,
+        0,    // HYGR_MINT,
+        50,   // HYGR_MAXT,
+        1,    // PRESSURE
+        850,  // PRESSURE_MIN
+        1080  // PRESSURE_MAX
+};
 
-void interruptGreen()
-{
-  if (maintien5sec(buttonGreenPin))
-  {
-    greenButtonPressed = true;
-  }
-}
+// Initialisation du tableau avec les paramètres modifiables par l'utilisateur
 
-void erreur(int R, int G, int B, int R2, int G2, int B2, int d) // Fonction d'erreur
-{
-  while (true)
-  {
-    leds.setColorRGB(0, R, G, B);
-    delay(1000);
-    leds.setColorRGB(0, R2, G2, B2);
-    delay(d);
-  }
-}
+int ParametresConfig[15] =
+    {
+        10,   // LOG_INTERVAL,
+        4096, // FILE_MAX_SIZE,
+        30,   // TIMEOUT,
+        1,    // LUMIN,
+        255,  // LUMIN_LOW,
+        768,  // LUMIN_HIGH,
+        1,    // TEMP_AIR,
+        -10,  // MIN_TEMP_AIR,
+        60,   // MAX_TEMP_AIR,
+        1,    // HYGR,
+        0,    // HYGR_MINT,
+        50,   // HYGR_MAXT,
+        1,    // PRESSURE
+        850,  // PRESSURE_MIN
+        1080  // PRESSURE_MAX
+};
 
-// Fonction pour obtenir le numéro du mois en fonction de son nom
-int getMonthNumber(const char *month)
-{
-  if (strncmp(month, "Jan", 3) == 0)
-    return 1;
-  if (strncmp(month, "Feb", 3) == 0)
-    return 2;
-  if (strncmp(month, "Mar", 3) == 0)
-    return 3;
-  if (strncmp(month, "Apr", 3) == 0)
-    return 4;
-  if (strncmp(month, "May", 3) == 0)
-    return 5;
-  if (strncmp(month, "Jun", 3) == 0)
-    return 6;
-  if (strncmp(month, "Jul", 3) == 0)
-    return 7;
-  if (strncmp(month, "Aug", 3) == 0)
-    return 8;
-  if (strncmp(month, "Sep", 3) == 0)
-    return 9;
-  if (strncmp(month, "Oct", 3) == 0)
-    return 10;
-  if (strncmp(month, "Nov", 3) == 0)
-    return 11;
-  if (strncmp(month, "Dec", 3) == 0)
-    return 12;
-  return 0; // Mois non valide
-}
+File32 Fichier;
+
+unsigned long TempsDerniereMesure = 0;
+char RevisionFichier = '0';
+unsigned long DerniereMesureCapteur = 0;
+
+bool VerificationEEPROM = false;
+bool t;
+long LOG_INTERVAL = ParametresConfig[0];
+String buffer;
+
+void BoutonRougeInterruption(void);
+void BoutonVertInterruption(void);
+
+void Mode_standard();
+void Mode_Maintenance();
+void Mode_economique();
+void Mode_config();
+void LEDStandard();
+void LEDMaintenance();
+void LEDEconomique();
+void LEDConfig();
+void Enregistrement_SD();
+void ChangerHorloge(int annee, int mois, int jour, int heure, int minute, int seconde);
+
+void GenerationDonnees();
+void DonneesGPS();
+void connexionSD();
+void erreur_acces_horloge();
+void erreur_acces_GPS();
+void erreur_acces_donnees_capteurs();
+void erreur_donnees_incoherentes();
+void erreur_carte_SD_pleine();
+void erreur_acces_ecriture();
+void ModificationConfig();
+void Affichage(String Donnees, bool ligne);
+void PointVirgule();
+void SeparateurHorloge();
+void Creation();
+
+void ClearMoniteurSerie();
+void FaireEEPROM(int ParametresConfig[15]);
+void LireEEPROM(int ParametresConfig[15]);
 
 void setup()
 {
   Serial.begin(9600);
-  gpsSerial.begin(9600);
-  // gpsSerial.available()
-  if (!true)
-  {
-    Serial.println("Erreur d’accès au GPS");
-    erreur(255, 0, 0, 255, 255, 0, 1000);
-    return;
-  }
+  SoftSerial.begin(9600);
+  ClearMoniteurSerie();
+  pinMode(2, INPUT);  // Bouton Vert
+  pinMode(3, INPUT);  // Bouton Rouge
+  pinMode(7, OUTPUT); // LED
+  Wire.begin();
+  leds.init();
 
-  // Initialisation de la carte SD
-  if (!SD.begin(4, SPI_FULL_SPEED))
-  {
-    Serial.println("Erreur d’accès ou d’écriture sur la carte SD");
-    erreur(255, 0, 0, 255, 255, 255, 2000);
-    return;
-  }
-
-  // Attacher les interruptions aux boutons
-  attachInterrupt(digitalPinToInterrupt(buttonGreenPin), interruptGreen, LOW);
-  attachInterrupt(digitalPinToInterrupt(buttonRedPin), interruptRed, LOW);
-
-  leds.init(); // Initialisation des LEDs
-  leds.setColorRGB(0, 255, 255, 255);
   climateSensor.begin();
-  if (!true)
-  { // Initialisation du capteur BME280
-    Serial.println("Erreur d’accès du capteur BME280");
-    erreur(255, 0, 0, 0, 255, 0, 1000);
-    return;
-  }
-  // Initialiser l'horloge
-  clock.begin();
-  if (!true)
-  {
-    Serial.println("Erreur d’accès à l’horloge RTC");
-    erreur(255, 0, 0, 0, 0, 255, 1000);
-    return;
-  }
-  clock.fillByYMD(atoi(__DATE__ + 7), getMonthNumber(__DATE__), atoi(__DATE__ + 4));
-  clock.fillByHMS(atoi(__TIME__), atoi(__TIME__ + 3), atoi(__TIME__ + 6));
-  clock.setTime(); // Écrire l'heure dans la puce RTC
-}
 
-bool maintien5sec(int Pin)
-{
-  int i = 0;
-  while (digitalRead(Pin) == LOW)
+  connexionSD();
+  SD.begin();
+  Serial.println(F("Connexion à la carte SD réussie."));
+  leds.setColorRGB(0, 255, 255, 255); // Couleur de la LED en blanc
+
+  while (!rtc.begin())
+  { // Initialisation du module RTC
+    Serial.println(F("Module RTC pas trouvé"));
+    erreur_acces_horloge();
+  }
+
+  rtc.adjust(DateTime((__DATE__), (__TIME__)));
+
+  attachInterrupt(digitalPinToInterrupt(2), BoutonVertInterruption, CHANGE);  // Interruption sur le bouton vert
+  attachInterrupt(digitalPinToInterrupt(3), BoutonRougeInterruption, CHANGE); // Interruption sur le bouton rouge
+
+  LireEEPROM(ParametresConfig);
+
+  for (int i = 0; i < 15; i++)
   {
-    i += 1;
-    delayMicroseconds(1000);
-    if (i >= 5000)
+    if (ParametresConfig[i] != ParametresDefault[i])
     {
-      leds.setColorRGB(0, 0, 0, 0);
-      while (digitalRead(Pin) == LOW)
-        ;
-      return true;
+      VerificationEEPROM = true;
+      break;
     }
   }
-  return false;
-}
 
-String getGPS()
-{
-  String trameGGA = "";
-
-  // Boucle de lecture des données GPS (On attend d'avoir la trame GGA)
-  if (gpsSerial.available())
+  if (!VerificationEEPROM)
   {
-    do
+    int adresse = 0;
+    for (int i = 0; i < 15; i++)
     {
-      // Lecture d'une ligne de données GPS
-      trameGGA = gpsSerial.readStringUntil('\n');
-    } while (!trameGGA.startsWith("$GPGGA", 0));
+      EEPROM.put(adresse, ParametresDefault[i]);
+      adresse += sizeof(long);
+    }
   }
+
+  if (digitalRead(3) == LOW)
+  {
+    mode_actu = 4;
+    return;
+  }
+
   else
   {
-    Serial.println("Unable to load GPS");
-    while (1)
-      ;
-  }
-  // Retour de la trame de sortie
-  return trameGGA;
-}
-
-// Fonction pour obtenir l'heure au format souhaité
-String getTime()
-{
-  String time = "";
-  clock.getTime();
-  time += String(clock.hour, DEC);
-  time += String(":");
-  time += String(clock.minute, DEC);
-  time += String(":");
-  time += String(clock.second, DEC);
-  time += String("  ");
-  time += String(clock.month, DEC);
-  time += String("/");
-  time += String(clock.dayOfMonth, DEC);
-  time += String("/");
-  time += String(clock.year + 2000, DEC);
-  return time;
-}
-
-// Fonction pour imprimer les données dans un fichier
-void printInFile(File f)
-{
-  String time = getTime();
-  String temperature = String(climateSensor.getTemperatureCelcius());
-  String humidity = String(climateSensor.getRelativeHumidity());
-  String pressure = String(climateSensor.getPressure() / 100.0F);
-  String luminosity = String(analogRead(lum_captor_pin));
-  String gps = String(getGPS());
-
-  f.print(temperature);
-  f.print("; ");
-  f.print(humidity);
-  f.print("; ");
-  f.print(pressure);
-  f.print("; ");
-  f.print(luminosity);
-  f.print("; ");
-  f.print(time);
-  f.print("; ");
-  f.println(gps);
-
-  if (f)
-  {
-    f.flush(); // Flush les données vers la carte SD
-    f.close(); // Fermez le fichier
-  }
-  else
-  {
-    Serial.println("Erreur lors de l'ouverture du fichier sur la carte SD.");
+    mode_actu = 1;
   }
 }
 
 void loop()
 {
-  if (redButtonPressed)
+  switch (mode_actu)
   {
-    // Appui long sur le bouton rouge détecté
-    redButtonPressed = false; // Réinitialiser le drapeau
-    if ((millis() - startTime) < 5000)
+  case 1:
+    Mode_standard();
+    break;
+  case 2:
+    Mode_Maintenance();
+    break;
+  case 3:
+    Mode_economique();
+    break;
+  case 4:
+    Mode_config();
+    break;
+  }
+}
+
+void BoutonVertInterruption(void)
+{
+  static bool EtatBoutonVert = false;
+  static unsigned long TempsBoutonVert = 0;
+
+  if ((digitalRead(2) == LOW) && (!EtatBoutonVert))
+  {
+    EtatBoutonVert = true;
+    TempsBoutonVert = millis();
+  }
+  else if ((digitalRead(2) == HIGH) && (EtatBoutonVert))
+  {
+    EtatBoutonVert = false;
+    if ((millis() - TempsBoutonVert) >= (5000))
     {
-      mod = 1; // Passer en mode Config
-      Serial.println("Config mod ON");
-      leds.setColorRGB(0, 255, 255, 0);
+      switch (mode_actu)
+      {
+      case 1:          // mode standard
+        mode_actu = 3; // mode économique
+        LEDEconomique();
+        break;
+      case 3:          // mode économique
+        mode_actu = 1; // mode standard
+        LEDStandard();
+        break;
+      }
+    }
+  }
+}
+
+void BoutonRougeInterruption(void)
+{
+  static bool EtatBoutonRouge = false;
+  static unsigned long TempsBoutonRouge = 0;
+
+  if ((digitalRead(3) == LOW) && (!EtatBoutonRouge))
+  {
+    EtatBoutonRouge = true;
+    TempsBoutonRouge = millis();
+  }
+
+  else if (digitalRead(3) == HIGH && (EtatBoutonRouge))
+  {
+    EtatBoutonRouge = false;
+    if ((millis() - TempsBoutonRouge) >= 5000)
+    {
+      TempsBoutonRouge = millis();
+      switch (mode_actu)
+      {
+      case 4:          // mode config
+        mode_actu = 1; // mode standard
+        LEDStandard();
+        break;
+      case 1:
+      case 3: // mode standard ou économique
+        mode_prec = mode_actu;
+        mode_actu = 2; // mode Maintenance
+        LEDMaintenance();
+        break;
+      case 2:                  // mode Maintenance
+        mode_actu = mode_prec; // mode précédent
+        mode_prec = 0;
+        switch (mode_actu)
+        {
+        case 1:
+          LEDStandard();
+          break;
+        case 3:
+          LEDEconomique();
+          break;
+        }
+      }
+    }
+  }
+}
+
+void Mode_standard()
+{
+  LEDStandard();
+  connexionSD();
+  unsigned long TempsDerniereMesure = millis();
+
+  if ((millis() - TempsDerniereMesure) >= (LOG_INTERVAL * 60 * 1000))
+  {
+
+    Creation();
+    // Enregistrement_SD();
+    TempsDerniereMesure = millis();
+    LEDStandard();
+  }
+}
+
+void Mode_Maintenance()
+{
+  LEDMaintenance();
+  delay(1000);
+  Serial.println(F("Horloge | Donnees du GPS | Donnees des capteurs"));
+  Creation();
+  LEDMaintenance();
+  delay(8000);
+}
+
+void Mode_economique()
+{
+  LEDEconomique();
+  connexionSD();
+  if ((millis() - TempsDerniereMesure) >= (ParametresConfig[0] * 60 * 1000 * 2))
+  {
+
+    // Enregistrement_SD();
+
+    TempsDerniereMesure = millis();
+  }
+
+  // Ajoutez ici d'autres actions spécifiques au mode économique, si nécessaire
+  // Par exemple, vous pouvez réduire la luminosité de l'écran ou désactiver certains capteurs pour économiser l'énergie
+}
+
+void Mode_config()
+{
+  LEDConfig();
+  unsigned long TempsInactif = millis();
+  Serial.println(F("Mode Configuration. Tapez vos commandes de configuration."));
+
+  while ((millis() - TempsInactif) < (30000))
+  {
+    if (Serial.available() > 0)
+    {
+      String commande = Serial.readStringUntil('\n');
+      commande.trim();
+      if (commande.startsWith("LOG_INTERVAL="))
+      {
+        ParametresConfig[0] = commande.substring(13).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("FILE_MAX_SIZE="))
+      {
+        ParametresConfig[1] = commande.substring(14).toInt();
+        ModificationConfig();
+      }
+      else if (commande.equals("RESET"))
+      {
+        for (int i = 0; i < 15; i++)
+        {
+          ParametresConfig[i] = ParametresDefault[i];
+        }
+        FaireEEPROM(ParametresConfig);
+        ModificationConfig();
+      }
+      else if (commande.equals("VERSION"))
+      {
+        // Affichez la version du programme et le numéro de lot
+        Serial.println(F("Version du programme : 1.0"));
+        Serial.println(F("Numéro de lot : 1"));
+      }
+      else if (commande.startsWith("TIMEOUT="))
+      {
+        ParametresConfig[2] = commande.substring(8).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("LUMIN="))
+      {
+        ParametresConfig[3] = commande.substring(6).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("LUMIN_LOW="))
+      {
+        ParametresConfig[4] = commande.substring(10).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("LUMIN_HIGH="))
+      {
+        ParametresConfig[5] = commande.substring(11).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("TEMP_AIR="))
+      {
+        ParametresConfig[6] = commande.substring(9).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("MIN_TEMP_AIR="))
+      {
+        ParametresConfig[7] = commande.substring(9).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("MAX_TEMP_AIR="))
+      {
+        ParametresConfig[8] = commande.substring(9).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("HYGR="))
+      {
+        ParametresConfig[9] = commande.substring(5).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("HYGR_MINT="))
+      {
+        ParametresConfig[10] = commande.substring(10).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("HYGR_MAXT="))
+      {
+        ParametresConfig[11] = commande.substring(10).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("PRESSURE="))
+      {
+        ParametresConfig[12] = commande.substring(5).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("PRESSURE_MIN="))
+      {
+        ParametresConfig[13] = commande.substring(13).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("PRESSURE_MAX="))
+      {
+        ParametresConfig[14] = commande.substring(13).toInt();
+        ModificationConfig();
+      }
+      else if (commande.startsWith("CLOCK="))
+      {
+        String Horloge = commande.substring(6);
+        int annee = Horloge.substring(0, 4).toInt();
+        int mois = Horloge.substring(5, 7).toInt();
+        int jour = Horloge.substring(8, 10).toInt();
+        int heure = Horloge.substring(11, 13).toInt();
+        int minute = Horloge.substring(14, 16).toInt();
+        int seconde = Horloge.substring(17, 19).toInt();
+        ChangerHorloge(annee, mois, jour, heure, minute, seconde);
+      }
+      else
+      {
+        Serial.println(F("Commande inexistante."));
+      }
+      TempsInactif = millis(); // Réinitialisez le compteur d'inactivité
+    }
+
+    if (mode_actu == 1)
+    {
+      break;
+    }
+  }
+
+  Serial.println(F("Fin de la configuration. Retour au mode standard."));
+  mode_actu = 1; // Retour au mode standard après configuration
+  LEDStandard();
+}
+
+void Enregistrement_SD()
+{
+  DateTime Maintenant = rtc.now();
+  char NomFichier[13];
+
+  // snprintf(NomFichier, sizeof(NomFichier), "%02d%02d%02d_%c.LOG", Maintenant.year() % 100, Maintenant.month(), Maintenant.day(), RevisionFichier);
+
+  connexionSD();
+
+  Fichier = SD.open("test", FILE_WRITE);
+
+  // Verifier si carte SD pleine
+
+  if (Fichier)
+  {
+    // Mesures des capteurs
+    // ...
+
+    // Écriture des données dans le fichier
+    Fichier.close();
+
+    // Vérifier la taille du fichier
+    if ((Fichier.size()) > (ParametresConfig[1]))
+    {
+      Fichier.close();
+      RevisionFichier++;
+    }
+
+    TempsDerniereMesure = millis();
+  }
+  else
+  {
+    Serial.println(F("Erreur d'écriture sur la carte SD."));
+    erreur_carte_SD_pleine();
+    TempsDerniereMesure = millis();
+  }
+}
+
+void ChangerHorloge(int annee, int mois, int jour, int heure, int minute, int seconde)
+{
+  DateTime NouvelleHorloge(annee, mois, jour, heure, minute, seconde); // Année, mois, jour, heure, minute, seconde
+  rtc.adjust(NouvelleHorloge);
+  Serial.println(F("Horloge changée avec succès."));
+}
+
+void LEDStandard()
+{
+  leds.setColorRGB(0, 0, 255, 0);
+}
+
+void LEDMaintenance()
+{
+  leds.setColorRGB(0, 255, 155, 0);
+}
+
+void LEDEconomique()
+{
+  leds.setColorRGB(0, 0, 0, 255);
+}
+
+void LEDConfig()
+{
+  leds.setColorRGB(0, 255, 0, 0);
+}
+
+void erreur_acces_horloge()
+{                  // Si erreur d'accès à l'horloge
+  LEDConfig();     // Allume la LED en rouge
+  delay(1000);     // On attend 1 sec
+  LEDEconomique(); // Allume la LED en bleu
+  delay(1000);     // On attend 1 sec
+}
+
+void erreur_acces_GPS()
+{                                   // Si erreur d'accès au GPS
+  LEDConfig();                      // Allume la LED en rouge
+  delay(1000);                      // On attend 1 sec
+  leds.setColorRGB(0, 255, 255, 0); // Allume la LED en jaune
+  delay(1000);                      // On attend 1 sec
+}
+
+void erreur_acces_donnees_capteurs()
+{                // Si erreur d'accès aux données d'un capteur
+  LEDConfig();   // Allume la LED en rouge
+  delay(1000);   // On attend 1 sec
+  LEDStandard(); // Allume la LED en verte
+  delay(1000);   // On attend 1 sec
+}
+
+void erreur_donnees_incoherentes()
+{                // Si données incohérentes
+  LEDConfig();   // Allume la LED en rouge
+  delay(1000);   // On attend 1 sec
+  LEDStandard(); // Allume la LED en vert
+  delay(2000);   // On attend 2 sec
+}
+
+void erreur_carte_SD_pleine()
+{                                     // Si erreur de carte SD pleine
+  LEDConfig();                        // Allume la LED en rouge
+  delay(1000);                        // On attend 1 sec
+  leds.setColorRGB(0, 255, 255, 255); // Allume la LED en blanc
+  delay(1000);                        // On attend 1 sec
+}
+
+void erreur_acces_ecriture()
+{                                     // Si erreur d'accès et d'écriture sur la carte SD
+  LEDConfig();                        // On allume la LED en rouge
+  delay(1000);                        // On attend 1 sec
+  leds.setColorRGB(0, 255, 255, 255); // On allume la LED en blanc
+  delay(2000);                        // On attend 2 sec
+}
+
+void GenerationDonnees()
+{
+  climateSensor.takeForcedMeasurement();
+
+  if (ParametresConfig[3])
+  {
+    int Luminosite = analogRead(A3);
+    Affichage(String(Luminosite) + " ; ", false);
+  }
+  else
+  {
+    Affichage("Capteur désactivé ; ", false);
+  }
+
+  float Temperature_Air = climateSensor.getTemperatureCelcius();
+  if (ParametresConfig[6])
+  {
+    if (Temperature_Air >= ParametresConfig[7] && Temperature_Air <= ParametresConfig[8])
+    {
+      Affichage(String(Temperature_Air) + " ; ", false);
     }
     else
     {
-      // Changer de mode entre Maintenance et Standard (inversement)
-      if (mod == 0 or mod == 3)
-      {
-        store_mod = mod; // Stocker le mode précédent
-        mod = 2;         // Passer en mode Maintenance
-        Serial.println("Maintenance mod ON");
-        leds.setColorRGB(0, 255, 50, 0);
-      }
-      else if (mod == 2)
-      {
-        mod = store_mod; // Retourner au mode Précedent
-        Serial.println("Standard mod ON");
-        leds.setColorRGB(0, 0, 255, 0);
-      }
+      erreur_donnees_incoherentes();
+      Affichage("Hors intervalle ; ", false);
     }
   }
-  else if (greenButtonPressed)
+  else
   {
-    // Appui long sur le bouton vert détecté
-    greenButtonPressed = false; // Réinitialiser le drapeau
-    // Changer de mode entre Eco et Standard (inversement)
-    if (mod == 0)
-    {
-      mod = 3;       // Passer en mode Eco
-      store_mod = 0; // Stocker le mode précédent (Standard)
-      Serial.println("Eco mod ON");
-      leds.setColorRGB(0, 0, 0, 255);
-    }
-    else if (mod == 3)
-    {
-      mod = 0; // Retourner en mode Standard
-      Serial.println("Standard mod ON");
-      leds.setColorRGB(0, 0, 255, 0);
-    }
+    Affichage("Capteur désactivé ; ", false);
   }
-  int now = millis();
-  if ((now - startTime) > 5000)
+
+  if (ParametresConfig[9])
   {
-    if ((now - lastExecution) > 5000)
+    float Hygrometrie = climateSensor.getRelativeHumidity();
+    if (Temperature_Air >= ParametresConfig[7] && Temperature_Air <= ParametresConfig[8])
     {
-      lastExecution = millis();
-      if (mod == 0)
-      { // Mode Standard
-        leds.setColorRGB(0, 0, 255, 0);
-        File dataFile = SD.open("luminosity.log", FILE_WRITE);
-        printInFile(dataFile);
-        Serial.println("Data saved");
-      }
-      else if (mod == 1)
-      { // Mode Config
-        Serial.println("Config mod ON");
-        leds.setColorRGB(0, 255, 255, 0);
-      }
-      else if (mod == 2)
-      { // Mode Maintenance
-        Serial.println("Maintenance mod ON");
-        leds.setColorRGB(0, 255, 50, 0);
-      }
-      else if (mod == 3)
-      { // Mode Eco
-        Serial.println("Eco mod ON");
-        leds.setColorRGB(0, 0, 0, 255);
-      }
-      else if (mod == 1)
-      {
-        Serial.println("Config mod ON");
-        leds.setColorRGB(0, 255, 255, 0);
-      }
+      Affichage(String(Hygrometrie) + " ; ", false);
+    }
+    else
+    {
+      erreur_donnees_incoherentes();
+      Affichage("Hors intervalle ; ", false);
     }
   }
+  else
+  {
+    Affichage("Capteur désactivé ; ", false);
+  }
+
+  if (ParametresConfig[12])
+  {
+    float Pression = climateSensor.getPressure();
+    if (Pression >= ParametresConfig[13] && Pression <= ParametresConfig[14])
+    {
+      Affichage(String(Pression), true);
+    }
+    else
+    {
+      erreur_donnees_incoherentes();
+      Affichage("Hors intervalle", true);
+    }
+  }
+  else
+  {
+    Affichage("Capteur désactivé", true);
+  }
+}
+
+void connexionSD()
+{
+  while (SD.begin(4) == 0)
+  {
+    Serial.println(F("Connexion à la carte SD impossible, veuillez verifier la connexion."));
+    erreur_acces_ecriture();
+  }
+}
+
+void ModificationConfig()
+{
+  Serial.println(F("Modification effectuée avec succès."));
+  FaireEEPROM(ParametresConfig);
+}
+
+void ClearMoniteurSerie()
+{
+  for (int i = 0; i < 30; i++)
+  {
+    Serial.println(F(" "));
+  }
+}
+
+void FaireEEPROM(int ParametresConfig[15])
+{
+  int adresse = 0;
+  for (int i = 0; i < 15; i++)
+  {
+    EEPROM.put(adresse, ParametresConfig[i]);
+    adresse += sizeof(long);
+  }
+}
+
+void LireEEPROM(int ParametresConfig[15])
+{
+  int adresse = 0;
+  for (int i = 0; i < 15; i++)
+  {
+    EEPROM.get(adresse, ParametresConfig[i]);
+    adresse += sizeof(long);
+  }
+}
+
+void DonneesGPS()
+{
+  if (SoftSerial.available())
+  {
+    buffer = "";
+    unsigned long StartGPS = millis();
+    do
+    {
+      buffer = SoftSerial.readStringUntil('\n');
+      if ((millis() - StartGPS) > 5000)
+      {
+        erreur_acces_GPS();
+        break;
+      }
+    } while (!buffer.startsWith(F("$GPGGA")));
+    Affichage(buffer, false);
+    PointVirgule();
+  }
+}
+
+void Affichage(String Donnees, bool ligne)
+{
+  if (mode_actu == 2)
+  {
+    if (ligne)
+    {
+      Serial.println(Donnees);
+    }
+    else
+    {
+      Serial.print(Donnees);
+    }
+  }
+  else
+  {
+    Fichier.print(Donnees);
+  }
+}
+
+void PointVirgule()
+{
+  Affichage(" ; ", false);
+}
+
+void SeparateurHorloge()
+{
+  Affichage(":", false);
+}
+
+void Creation()
+{
+  DateTime Maintenant = rtc.now();
+  Affichage(Maintenant.hour() > 9 ? String(Maintenant.hour()) : '0' + String(Maintenant.hour()), false);
+  SeparateurHorloge();
+  Affichage(Maintenant.minute() > 9 ? String(Maintenant.minute()) : '0' + String(Maintenant.minute()), false);
+  SeparateurHorloge();
+  Affichage(Maintenant.second() > 9 ? String(Maintenant.second()) : '0' + String(Maintenant.second()), false);
+  PointVirgule();
+  delay(1000);
+  DonneesGPS();
+  GenerationDonnees();
 }

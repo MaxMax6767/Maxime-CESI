@@ -83,16 +83,21 @@ int TIMEOUT = 30;
 +-----------------+-------------------+-------------------+--------------------------------------------------+
 */
 
-void switchg() // Fonction de changement de mode quand appui sur le boutton vert
+void switchg()
 {
-  int i = 0;
-  while (digitalRead(3) == LOW) // Tant que le boutton est appuyé
+  static bool EtatBoutonVert = false;
+  static unsigned long TempsBoutonVert = 0;
+
+  if ((digitalRead(3) == LOW) && (!EtatBoutonVert))
   {
-    i++;                     // Incrémentation de i
-    delayMicroseconds(1000); // Attente de 1ms (en microsecondes car delay() ne fonctionne pas dans une interruption)
-    if (i >= 5000)           // Si i est supérieur à 5000 (5s) alors on change de mode
+    EtatBoutonVert = true;
+    TempsBoutonVert = millis();
+  }
+  else if ((digitalRead(3) == HIGH) && (EtatBoutonVert))
+  {
+    EtatBoutonVert = false;
+    if ((millis() - TempsBoutonVert) >= (5000))
     {
-      i = 0;
       switch (mode)
       {
       case config:
@@ -117,17 +122,24 @@ void switchg() // Fonction de changement de mode quand appui sur le boutton vert
   }
 }
 
-void switchr() // Fonction de changement de mode quand appui sur le boutton rouge
+void switchr()
 {
-  modes modep;
-  int i = 0;
-  while (digitalRead(2) == LOW) // Tant que le boutton est appuyé
+  static modes modep;
+  static bool EtatBoutonRouge = false;
+  static unsigned long TempsBoutonRouge = 0;
+
+  if ((digitalRead(2) == LOW) && (!EtatBoutonRouge))
   {
-    i++;
-    delayMicroseconds(1000); // Attente de 1ms (en microsecondes car delay() ne fonctionne pas dans une interruption)
-    if (i >= 5000)           // Si i est supérieur à 5000 (5s) alors on change de mode
+    EtatBoutonRouge = true;
+    TempsBoutonRouge = millis();
+  }
+
+  else if (digitalRead(2) == HIGH && (EtatBoutonRouge))
+  {
+    EtatBoutonRouge = false;
+    if ((millis() - TempsBoutonRouge) >= 5000)
     {
-      i = 0;
+      TempsBoutonRouge = millis();
       switch (mode)
       {
       case erreur_sd:
@@ -177,27 +189,58 @@ void setup()
   clock.fillByHMS(atoi(__TIME__), atoi(__TIME__ + 3), atoi(__TIME__ + 6));
   clock.setTime(); // Écrire l'heure dans la puce RTC
 
-  attachInterrupt(digitalPinToInterrupt(3), switchg, LOW); // Interruption sur le boutton vert
-  attachInterrupt(digitalPinToInterrupt(2), switchr, LOW); // Interruption sur le boutton rouge
-
-  // Ecriture de la config par défaut dans l'EEPROM
-  EEPROM.put(0, LUMIN);
-  EEPROM.put(1, LUMIN_LOW);
-  EEPROM.put(3, LUMIN_HIGH);
-  EEPROM.put(5, TEMP_AIR);
-  EEPROM.put(6, MIN_TEMP_AIR);
-  EEPROM.put(8, MAX_TEMP_AIR);
-  EEPROM.put(10, HYGR);
-  EEPROM.put(11, HYGR_MINT);
-  EEPROM.put(13, HYGR_MAXT);
-  EEPROM.put(15, PRESSURE);
-  EEPROM.put(16, PRESSURE_MIN);
-  EEPROM.put(18, PRESSURE_MAX);
-  EEPROM.put(20, LOG_INTERVAL);
-  EEPROM.put(24, FILE_MAX_SIZE);
-  EEPROM.put(28, TIMEOUT);
+  attachInterrupt(digitalPinToInterrupt(3), switchg, CHANGE); // Interruption sur le boutton vert
+  attachInterrupt(digitalPinToInterrupt(2), switchr, CHANGE); // Interruption sur le boutton rouge
 
   leds.setColorRGB(0, 150, 150, 150); // LED blanche au démarrage
+}
+
+String getGpsGga() // Fonction de récupération de la trame GGA
+{
+  static char gpsData[85]; // Tableau statique de caractères pour stocker les données GPS
+
+  // Initialisation du tableau
+  for (int i = 0; i < 85; i++)
+  {
+    gpsData[i] = '\0';
+  }
+
+  // Lecture des données GPS
+  int i = 0;
+  while (true)
+  {
+    // Si le port série du GPS est disponible, on a reçu un nouveau caractère
+    if (SoftSerial.available())
+    {
+      // Lecture du caractère
+      gpsData[i] = (char)SoftSerial.read();
+
+      // Si le caractère est un retour à la ligne, on a terminé la lecture de la trame
+      if (gpsData[i] == '\n')
+      {
+        // Vérification de la trame
+        if (strncmp(gpsData, "$GPGGA", 6) == 0)
+        {
+          // Trame GGA trouvée, on retourne les données
+          return gpsData;
+        }
+        else
+        {
+          // Trame non valide, on réinitialise le tableau
+          for (int j = 0; j < 85; j++)
+          {
+            gpsData[j] = '\0';
+          }
+          i = 0;
+        }
+      }
+      else
+      {
+        // On incrémente l'index du tableau
+        i++;
+      }
+    }
+  }
 }
 
 String getGps() // Fonction de récupération des données GPS
@@ -205,30 +248,14 @@ String getGps() // Fonction de récupération des données GPS
   static bool gps; // Variable de stockage de l'état de la mesure du GPS
   if (mode != 2)   // Si on est pas en mode Eco, on récupère les données GPS
   {
-  mesure:
-    String gpsData = "";        // Variable de stockage des données GPS
-    if (SoftSerial.available()) // Si le port série du GPS est disponible
-    {
-      bool t = true;
-      while (t)
-      {
-        gpsData = SoftSerial.readStringUntil('\n'); // Lecture des données GPS
-        if (gpsData.startsWith(F("$GPGGA"), 0))     // Si la ligne démare avec $GPGAA, il s'agit d'une mesure du GPS
-        {
-          t = false;
-        }
-      }
-    }
-    // Si l'acquisition des données à ratée (ex: pas de signal GPS), on réinitialise les données à vide
-    Serial.println(gpsData);
-    return gpsData; // Retourne les données GPS
+    return getGpsGga();
   }
   else // Sinon on récupère les données GPS une fois sur deux
   {
     if (gps)
     {
       gps = !gps;
-      goto mesure;
+      return getGpsGga();
     }
     else
     {
@@ -270,9 +297,11 @@ float getCapteur(bool o, float m, int l, int h) // Fonction de récupération de
   return n; // Retourne la valeur
 }
 
-String nom(int i) // Fonction de création du nom du fichier
+char *nom(int i) // Fonction de création du nom du fichier
 {
-  return String(clock.year) + String(clock.month) + String(clock.dayOfMonth) + F("_") + String(i) + F(".log"); // Retourne le nom du fichier
+  static char buff[15];
+  sprintf(buff, "%02d%02d%02d_%d.log", clock.year, clock.month, clock.dayOfMonth, i);
+  return buff;
 }
 
 void prnt(File f) // Fonction d'écriture dans le fichier
