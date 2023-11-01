@@ -16,6 +16,9 @@ unsigned long startTime = millis(); // Temps de démarrage du programme
 const char sep1 PROGMEM = ';';      // Séparateur de données
 const char sep2 PROGMEM = ':';      // Séparateur d'heure
 File dataFile;                      // Fichier de données
+char *work = (char *)malloc(12 * sizeof(char));
+char *fileName = (char *)malloc(16 * sizeof(char));
+uint16_t startDay; // Jour de démarrage du programme
 
 typedef enum
 {
@@ -211,6 +214,7 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(2), switchr, CHANGE); // Interruption sur le boutton rouge
 
   leds.setColorRGB(0, 150, 150, 150); // LED blanche au démarrage
+  startDay = clock.dayOfMonth;
 }
 
 void erreur(int R, int G, int B, int R2, int G2, int B2, int d) // Fonction d'erreur
@@ -256,6 +260,7 @@ String getGps() // Fonction de récupération de la trame GGA
             erreurs[2]++;
             return "";
           }
+          Serial.println(gpsData);
           return gpsData;
         }
         else
@@ -329,13 +334,6 @@ float getCapteur(bool *o, float m, int *l, int *h) // Fonction de récupération
   }
 }
 
-char *nom(int i) // Fonction de création du nom du fichier
-{
-  static char buff[15];
-  sprintf(buff, "%02d%02d%02d_%d.log", clock.year, clock.month, clock.dayOfMonth, i);
-  return buff;
-}
-
 void prnt(bool m) // Fonction d'écriture dans le fichier
 {
   // Acquisition des données
@@ -377,9 +375,32 @@ void prnt(bool m) // Fonction d'écriture dans le fichier
 void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la carte SD
 {
   clock.getTime();
-  static int rev = 0;         // Variable de stockage du numéro de révision du fichier
-  String work = nom(0);       // Variable de stockage du nom du fichier
-  String fileName = nom(rev); // Création du nom du nouveau fichier
+  static int rev = 0; // Variable de stockage du numéro de révision du fichier
+
+  // Création du nom du fichier
+  char day_str[3];
+  itoa(clock.dayOfMonth, day_str, 10);
+  char month_str[3];
+  itoa(clock.month, month_str, 10);
+  char year_str[4];
+  itoa(clock.year, year_str, 10);
+  char rev_str[4];
+  itoa(rev, rev_str, 10);
+
+  strcpy(work, day_str);
+  strcat(work, month_str);
+  strcat(work, year_str);
+  strcat(work, "_0.log");
+
+  strcpy(fileName, day_str);
+  strcat(fileName, month_str);
+  strcat(fileName, year_str);
+  strcat(fileName, "_");
+  strcat(fileName, rev_str);
+  strcat(fileName, ".log");
+
+  Serial.println(work);
+  Serial.println(fileName);
 
   if (SD.freeClusterCount() < 1) // Si la carte SD est pleine (ou presque) on passe en mode erreur
   {
@@ -388,6 +409,7 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
   }
   if (SD.exists(work)) // Si le fichier existe déjà on l'ouvre
   {
+    Serial.println(F("O"));
     // Open file
     dataFile = SD.open(work, FILE_WRITE);
 
@@ -396,14 +418,16 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
     {
       // Close file
       dataFile.close();
-
-      String fileName = nom(rev); // Création du nom du nouveau fichier
-      while (SD.exists(fileName)) // Tant que le fichier existe
+      while (SD.exists(fileName))
       {
-        rev += 1;            // Incrémentation du numéro de révision
-        fileName = nom(rev); // Création du nom du nouveau fichier (le fichier va être nommé avec le numéro de révision le plus proche du précédent plus élevé disponible)
-      };
-      Serial.println(fileName);
+        rev++;
+        strcpy(fileName, day_str);
+        strcat(fileName, month_str);
+        strcat(fileName, year_str);
+        strcat(fileName, "_");
+        strcat(fileName, rev_str);
+        strcat(fileName, ".log");
+      }
       SD.rename(work, fileName); // Renommage du fichier
       goto ecriture;             // On crée un nouveau fichier d'écriture avec le bon nom
     }
@@ -414,6 +438,7 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
   }
   else
   {
+    Serial.println(F("N"));
   ecriture:
     dataFile = SD.open(work, FILE_WRITE);                                      // Création du fichier
     dataFile.println(F("Temps;GPS;Luminosite;Temperature;Humidite;Pression")); // Ecriture de l'entête
@@ -467,10 +492,8 @@ void executeCommand(String command, int argument)
   }
   else if (command == Tlumin || command == Ttemp_air || command == Thygr || command == Tpressure)
   {
-    int address = (command == Tlumin) ? 0 : ((command == Ttemp_air) ? 5 : ((command == Thygr) ? 10 : 15));
     if (argument == 0 || argument == 1)
     {
-      EEPROM.put(address, argument);
       Serial.print(Tvariable);
       Serial.print(command);
       Serial.print(Tmodifiee);
@@ -483,12 +506,10 @@ void executeCommand(String command, int argument)
   }
   else if (command == Tlumin_low || command == Tlumin_high || command == Tmin_temp_air || command == Tmax_temp_air || command == Thygr_mint || command == Thygr_maxt || command == Tpressure_min || command == Tpressure_max)
   {
-    int address = (command == Tlumin_low) ? 1 : ((command == Tlumin_high) ? 3 : ((command == Tmin_temp_air) ? 6 : ((command == Tmax_temp_air) ? 8 : ((command == Thygr_mint) ? 11 : ((command == Thygr_maxt) ? 13 : ((command == Tpressure_min) ? 16 : 18))))));
     int minVal = (command == Tlumin_low) ? 0 : ((command == Tmin_temp_air || command == Thygr_mint || command == Tpressure_min) ? -40 : 300);
     int maxVal = (command == Tlumin_high) ? 1023 : ((command == Tmax_temp_air || command == Thygr_mint || command == Tpressure_max) ? 85 : 1100);
     if (argument >= minVal && argument <= maxVal)
     {
-      EEPROM.put(address, argument);
       Serial.print(Tvariable);
       Serial.print(command);
       Serial.print(Tmodifiee);
@@ -501,10 +522,8 @@ void executeCommand(String command, int argument)
   }
   else if (command == Tlog_interval || command == Tfile_max_size || command == Ttimeout)
   {
-    int address = (command == Tlog_interval) ? 20 : ((command == Tfile_max_size) ? 24 : 28);
     if (argument > 0)
     {
-      EEPROM.put(address, argument);
       Serial.print(Tvariable);
       Serial.print(command);
       Serial.print(Tmodifiee);
