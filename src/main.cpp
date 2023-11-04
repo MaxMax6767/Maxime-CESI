@@ -54,17 +54,17 @@ int erreurs[5] = {0, 0, 0, 0, 0};
 modes mode = initialisation; // Mode de fonctionnement
 
 bool LUMIN = true;
-int LUMIN_LOW = 0;
-int LUMIN_HIGH = 1023;
+int LUMIN_LOW = 255;
+int LUMIN_HIGH = 768;
 bool TEMP_AIR = true;
-int MIN_TEMP_AIR = -40;
-int MAX_TEMP_AIR = 85;
+int MIN_TEMP_AIR = -10;
+int MAX_TEMP_AIR = 60;
 bool HYGR = true;
-int HYGR_MINT = -40;
-int HYGR_MAXT = 85;
+int HYGR_MINT = -0;
+int HYGR_MAXT = 50;
 bool PRESSURE = true;
-int PRESSURE_MIN = 300;
-int PRESSURE_MAX = 1100;
+int PRESSURE_MIN = 850;
+int PRESSURE_MAX = 1080;
 unsigned long LOG_INTERVAL = 10;
 uint32_t FILE_MAX_SIZE = 4096;
 int TIMEOUT = 30;
@@ -206,12 +206,29 @@ void setup()
   }
 
   clock.begin();
-  clock.fillByYMD(2023, 10, 27);
+  clock.fillByYMD(2023, 11, 4);
   clock.fillByHMS(atoi(__TIME__), atoi(__TIME__ + 3), atoi(__TIME__ + 6));
   clock.setTime(); // Écrire l'heure dans la puce RTC
 
   attachInterrupt(digitalPinToInterrupt(3), switchg, CHANGE); // Interruption sur le boutton vert
   attachInterrupt(digitalPinToInterrupt(2), switchr, CHANGE); // Interruption sur le boutton rouge
+
+  // Ecriture de la config dans l'EEPROM
+  EEPROM.put(0, true);
+  EEPROM.put(1, 255);
+  EEPROM.put(3, 768);
+  EEPROM.put(5, true);
+  EEPROM.put(6, -10);
+  EEPROM.put(8, 60);
+  EEPROM.put(10, true);
+  EEPROM.put(11, 0);
+  EEPROM.put(13, 50);
+  EEPROM.put(15, true);
+  EEPROM.put(16, 850);
+  EEPROM.put(18, 1080);
+  EEPROM.put(20, 10);
+  EEPROM.put(24, 4096);
+  EEPROM.put(28, 30);
 
   leds.setColorRGB(0, 150, 150, 150); // LED blanche au démarrage
   startDay = clock.dayOfMonth;
@@ -228,7 +245,19 @@ void erreur(int R, int G, int B, int R2, int G2, int B2, int d) // Fonction d'er
   }
 }
 
-String getGps() // Fonction de récupération de la trame GGA
+void errorHandler()
+{
+  if (mode == maintenance)
+  {
+    Serial.print(F("Nan;"));
+  }
+  else
+  {
+    dataFile.print(F("Nan;"));
+  }
+}
+
+String getGga() // Fonction de récupération de la trame GGA
 {
   static char gpsData[85]; // Tableau statique de caractères pour stocker les données GPS
 
@@ -257,7 +286,6 @@ String getGps() // Fonction de récupération de la trame GGA
           // Trame GGA trouvée, on retourne les données
           if (gpsData[19] == ',' && gpsData[20] == ',' && gpsData[21] == ',')
           {
-            erreurs[2]++;
             return "";
           }
           Serial.println(gpsData);
@@ -282,23 +310,45 @@ String getGps() // Fonction de récupération de la trame GGA
   }
 }
 
-String gpsHandler() // Fonction de récupération des données GPS
+void getGps() // Fonction de récupération des données GPS
 {
   static bool gps; // Variable de stockage de l'état de la mesure du GPS
   if (mode != 2)   // Si on est pas en mode Eco, on récupère les données GPS
   {
   mesure:
-    String val = getGps();
-    if (val != "")
+    String val = getGga();
+    if (val == "")
     {
+      unsigned long debutErreur = millis();
+      while (millis() - debutErreur < TIMEOUT * 1000)
+      {
+        val = getGga();
+        if (val != "")
+        {
+          goto affichage;
+        }
+        errorHandler();
+        erreurs[3]++; // On incrémente le compteur d'erreurs de capteur
+        if (erreurs[3] >= 2)
+        {
+          mode = erreur_gps;
+        }
+      }
     }
     else
     {
-      erreurs[3]++;
-      delay(TIMEOUT * 1000);
-      goto mesure;
+    affichage:
+      if (mode == maintenance)
+      {
+        Serial.print(val);
+        Serial.print(sep1);
+      }
+      else
+      {
+        dataFile.print(val);
+        dataFile.print(sep1);
+      }
     }
-    return val;
   }
   else // Sinon on récupère les données GPS une fois sur deux
   {
@@ -310,27 +360,210 @@ String gpsHandler() // Fonction de récupération des données GPS
     else
     {
       gps = !gps;
-      return F("");
+      if (mode == maintenance)
+      {
+        Serial.print(F(";"));
+      }
+      else
+      {
+        dataFile.print(F(";"));
+      }
     }
   }
 }
 
-float getCapteur(bool *o, float m, int *l, int *h) // Fonction de récupération des données des capteurs
+void getTemperature()
 {
-  if (*o) // Si le capteur est activé
+  float temperature = climateSensor.getTemperatureCelcius();
+  if (isnan(temperature))
   {
-    if (m < *l || m > *h) // Si la valeur est hors des limites
+    unsigned long debutErreur = millis();
+    while (millis() - debutErreur < TIMEOUT * 1000)
     {
-      return NAN; // On retourne NAN
-    }
-    else
-    {
-      return m; // Sinon on retourne la valeur
+      temperature = climateSensor.getTemperatureCelcius();
+      if (!isnan(temperature))
+      {
+        goto affichage;
+      }
+      errorHandler();
+      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+      if (erreurs[4] >= 2)
+      {
+        mode = erreur_capteur;
+      }
     }
   }
   else
   {
-    return NAN;
+    if (temperature < MIN_TEMP_AIR || temperature > MAX_TEMP_AIR)
+    {
+      errorHandler();
+      mode = erreur_valeur;
+    }
+    else
+    {
+    affichage:
+      if (mode == maintenance)
+      {
+        Serial.print(temperature);
+        Serial.print(sep1);
+      }
+      else
+      {
+        dataFile.print(temperature);
+        dataFile.print(sep1);
+      }
+    }
+  }
+}
+
+void getHumidite()
+{
+  float humidite = climateSensor.getRelativeHumidity();
+  float temperature = climateSensor.getTemperatureCelcius();
+  if (isnan(humidite))
+  {
+    unsigned long debutErreur = millis();
+    while (millis() - debutErreur < TIMEOUT * 1000)
+    {
+      humidite = climateSensor.getRelativeHumidity();
+      if (!isnan(humidite))
+      {
+        goto affichage;
+      }
+      errorHandler();
+      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+      if (erreurs[4] >= 2)
+      {
+        mode = erreur_capteur;
+      }
+    }
+  }
+  else
+  {
+    if (temperature < HYGR_MINT || temperature > HYGR_MAXT)
+    {
+      errorHandler();
+    }
+    else
+    {
+    affichage:
+      if (mode == maintenance)
+      {
+        Serial.print(humidite);
+        Serial.print(sep1);
+      }
+      else
+      {
+        dataFile.print(humidite);
+        dataFile.print(sep1);
+      }
+    }
+  }
+}
+
+void getPression()
+{
+  float pression = climateSensor.getPressure();
+  if (isnan(pression))
+  {
+    unsigned long debutErreur = millis();
+    while (millis() - debutErreur < TIMEOUT * 1000)
+    {
+      pression = climateSensor.getPressure();
+      if (!isnan(pression))
+      {
+        goto affichage;
+      }
+      errorHandler();
+      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+      if (erreurs[4] >= 2)
+      {
+        mode = erreur_capteur;
+      }
+    }
+  }
+  else
+  {
+    if (pression < PRESSURE_MIN || pression > PRESSURE_MAX)
+    {
+      errorHandler();
+      mode = erreur_valeur;
+    }
+    else
+    {
+    affichage:
+      if (mode == maintenance)
+      {
+        Serial.print(pression);
+        Serial.println(sep1);
+      }
+      else
+      {
+        dataFile.print(pression);
+        dataFile.println(sep1);
+      }
+    }
+  }
+}
+
+void getLuminosite()
+{
+  int luminosite = analogRead(A0);
+  if (luminosite < LUMIN_LOW)
+  {
+    if (mode == maintenance)
+    {
+      Serial.print(F("Faible;"));
+    }
+    else
+    {
+      dataFile.print(F("Faible;"));
+    }
+  }
+  else if (luminosite > LUMIN_HIGH)
+  {
+    if (mode == maintenance)
+    {
+      Serial.print(F("Elevée;"));
+    }
+    else
+    {
+      dataFile.print(F("Elevée;"));
+    }
+  }
+  else
+  {
+    if (mode == maintenance)
+    {
+      Serial.print(F("Normale;"));
+    }
+    else
+    {
+      dataFile.print(F("Normale;"));
+    }
+  }
+}
+
+void getTemps()
+{
+  if (mode == maintenance)
+  {
+    Serial.print(clock.hour); // Ecriture de l'heure
+    Serial.print(sep2);       // Ecriture du séparateur
+    Serial.print(clock.minute);
+    Serial.print(sep2);
+    Serial.print(clock.second);
+    Serial.print(sep1);
+  }
+  else
+  {
+    dataFile.print(clock.hour); // Ecriture de l'heure
+    dataFile.print(sep2);       // Ecriture du séparateur
+    dataFile.print(clock.minute);
+    dataFile.print(sep2);
+    dataFile.print(clock.second);
+    dataFile.print(sep1);
   }
 }
 
@@ -339,36 +572,15 @@ void prnt(bool m) // Fonction d'écriture dans le fichier
   // Acquisition des données
   climateSensor.takeForcedMeasurement();
   clock.getTime();
-
-  if (m)
+  getTemps();
+  getGps();
+  getLuminosite();
+  getTemperature();
+  getHumidite();
+  getPression();
+  if (mode == maintenance)
   {
-    Serial.print(String(clock.hour) + sep2 + String(clock.minute) + sep2 + String(clock.second));             // Ecriture de l'heure
-    Serial.print(sep1);                                                                                       // Ecriture du séparateur
-    Serial.print(getGps());                                                                                   // Ecriture des données GPS
-    Serial.print(sep1);                                                                                       // Ecriture du séparateur
-    Serial.print(getCapteur(&LUMIN, analogRead(A0), &LUMIN_LOW, &LUMIN_HIGH));                                // Ecriture de la luminosité
-    Serial.print(sep1);                                                                                       // Ecriture du séparateur
-    Serial.print(getCapteur(&TEMP_AIR, climateSensor.getTemperatureCelcius(), &MIN_TEMP_AIR, &MAX_TEMP_AIR)); // Ecriture de la température
-    Serial.print(sep1);                                                                                       // Ecriture du séparateur
-    Serial.print(getCapteur(&HYGR, climateSensor.getRelativeHumidity(), &HYGR_MINT, &HYGR_MAXT));             // Ecriture de l'humidité
-    Serial.print(sep1);                                                                                       // Ecriture du séparateur
-    Serial.println(getCapteur(&PRESSURE, climateSensor.getPressure(), &PRESSURE_MIN, &PRESSURE_MAX));         // Ecriture de la pression
-  }
-  else
-  {
-    dataFile.print(String(clock.hour) + sep2 + String(clock.minute) + sep2 + String(clock.second));             // Ecriture de l'heure
-    dataFile.print(sep1);                                                                                       // Ecriture du séparateur
-    dataFile.print(getGps());                                                                                   // Ecriture des données GPS
-    dataFile.print(sep1);                                                                                       // Ecriture du séparateur
-    dataFile.print(getCapteur(&LUMIN, analogRead(A0), &LUMIN_LOW, &LUMIN_HIGH));                                // Ecriture de la luminosité
-    dataFile.print(sep1);                                                                                       // Ecriture du séparateur
-    dataFile.print(getCapteur(&TEMP_AIR, climateSensor.getTemperatureCelcius(), &MIN_TEMP_AIR, &MAX_TEMP_AIR)); // Ecriture de la température
-    dataFile.print(sep1);                                                                                       // Ecriture du séparateur
-    dataFile.print(getCapteur(&HYGR, climateSensor.getRelativeHumidity(), &HYGR_MINT, &HYGR_MAXT));             // Ecriture de l'humidité
-    dataFile.print(sep1);                                                                                       // Ecriture du séparateur
-    dataFile.println(getCapteur(&PRESSURE, climateSensor.getPressure(), &PRESSURE_MIN, &PRESSURE_MAX));         // Ecriture de la pression
-    dataFile.flush();                                                                                           // Ecriture des données dans le fichier
-    dataFile.close();                                                                                           // Fermeture du fichier
+    dataFile.close();
   }
 }
 
