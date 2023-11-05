@@ -31,6 +31,7 @@ typedef enum
   erreur_enregistrement,
   erreur_valeur,
   erreur_gps,
+  erreur_rtc,
   erreur_capteur
 } modes;
 
@@ -127,6 +128,7 @@ void switchg()
       case erreur_enregistrement:
       case erreur_valeur:
       case erreur_gps:
+      case erreur_rtc:
       case erreur_capteur:
       case initialisation:
         break;
@@ -167,6 +169,7 @@ void switchr()
       case erreur_enregistrement:
       case erreur_valeur:
       case erreur_gps:
+      case erreur_rtc:
       case erreur_capteur:
         break;
       case initialisation:
@@ -822,19 +825,22 @@ void loop()
     }
     break;
   case erreur_sd:
-    erreur(150, 0, 0, 0, 150, 0, 2000);
+    erreur(150, 0, 0, 150, 150, 150, 1000);
     break;
   case erreur_enregistrement:
-    erreur(150, 0, 0, 0, 150, 0, 2000);
+    erreur(150, 0, 0, 150, 150, 150, 2000);
     break;
   case erreur_valeur:
     erreur(150, 0, 0, 0, 150, 0, 2000);
     break;
   case erreur_gps:
-    erreur(150, 0, 0, 0, 150, 0, 2000);
+    erreur(150, 0, 0, 150, 150, 0, 1000);
+    break;
+  case erreur_rtc:
+    erreur(150, 0, 0, 0, 0, 150, 1000);
     break;
   case erreur_capteur:
-    erreur(150, 0, 0, 0, 150, 0, 2000);
+    erreur(150, 0, 0, 0, 150, 0, 1000);
     break;
   }
 }
