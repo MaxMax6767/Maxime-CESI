@@ -40,7 +40,7 @@ int erreurs[5] = {0, 0, 0, 0, 0};
 +----------+---------------------------------+
 | Position | Type d'erreur                   |
 +----------+---------------------------------+
-| 0        | Erreur SD pleine                |
+| 0        | Erreur enregistrement SD        |
 +----------+---------------------------------+
 | 1        | Erreur d'accès à la RTC         |
 +----------+---------------------------------+
@@ -331,10 +331,10 @@ void getGps() // Fonction de récupération des données GPS
         }
       }
       errorHandler();
-      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
-      if (erreurs[4] >= 2)
+      erreurs[3]++; // On incrémente le compteur d'erreurs de capteur
+      if (erreurs[3] >= 2)
       {
-        mode = erreur_capteur;
+        mode = erreur_gps;
       }
     }
   affichage:
@@ -552,16 +552,17 @@ void getTemps()
     unsigned long debutErreur = millis();
     while (millis() - debutErreur < TIMEOUT * 1000)
     {
+      clock.getTime();
       if (String(clock.hour) != "" && String(clock.month) != "" && String(clock.dayOfMonth) != "")
       {
         goto ecriture;
       }
     }
     errorHandler();
-    erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
-    if (erreurs[4] >= 2)
+    erreurs[1]++; // On incrémente le compteur d'erreurs de capteur
+    if (erreurs[1] >= 2)
     {
-      mode = erreur_capteur;
+      mode = erreur_rtc;
     }
   }
   else
