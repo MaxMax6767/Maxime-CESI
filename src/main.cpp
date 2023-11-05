@@ -286,12 +286,11 @@ String getGga() // Fonction de récupération de la trame GGA
         // Vérification de la trame
         if (strncmp(gpsData, "$GPGGA", 6) == 0)
         {
-          // Trame GGA trouvée, on retourne les données
-          if (gpsData[19] == ',' && gpsData[20] == ',' && gpsData[21] == ',')
-          {
-            return "";
-          }
-          Serial.println(gpsData);
+          // if (gpsData[19] == ',' && gpsData[20] == ',' && gpsData[21] == ',')  // Commenter en cas de tests en intérieur
+          // {
+          //   return "";
+          // }
+          gpsData[i] = '\0';
           return gpsData;
         }
         else
@@ -332,25 +331,22 @@ void getGps() // Fonction de récupération des données GPS
         }
       }
       errorHandler();
-      erreurs[3]++; // On incrémente le compteur d'erreurs de capteur
-      if (erreurs[3] >= 2)
+      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+      if (erreurs[4] >= 2)
       {
-        mode = erreur_gps;
+        mode = erreur_capteur;
       }
+    }
+  affichage:
+    if (mode == maintenance)
+    {
+      Serial.print(val);
+      Serial.print(sep1);
     }
     else
     {
-    affichage:
-      if (mode == maintenance)
-      {
-        Serial.print(val);
-        Serial.print(sep1);
-      }
-      else
-      {
-        dataFile.print(val);
-        dataFile.print(sep1);
-      }
+      dataFile.print(val);
+      dataFile.print(sep1);
     }
   }
   else // Sinon on récupère les données GPS une fois sur deux
@@ -550,6 +546,7 @@ void getLuminosite()
 
 void getTemps()
 {
+  clock.getTime();
   if (String(clock.hour) == "" || String(clock.month) == "" || String(clock.dayOfMonth) == "")
   {
     unsigned long debutErreur = millis();
@@ -785,7 +782,7 @@ void loop()
   switch (mode)
   {
   case initialisation:
-    if ((currentTime - startTime) >= 5000)
+    if ((currentTime - startTime) >= 10000)
     {
       mode = normal;
       leds.setColorRGB(0, 0, 150, 0);
@@ -793,14 +790,14 @@ void loop()
     }
     break;
   case normal:
-    if ((currentTime - startTime) >= 5000)
+    if ((currentTime - startTime) >= LOG_INTERVAL * 10000)
     {
       ecriture();              // On les écrit dans le fichier
       startTime = currentTime; // On réinitialise le temps de démarrage
     }
     break;
   case eco:
-    if ((currentTime - startTime) >= 5000)
+    if ((currentTime - startTime) >= 2 * LOG_INTERVAL * 10000)
     {
       ecriture();              // On les écrit dans le fichier
       startTime = currentTime; // On réinitialise le temps de démarrage
