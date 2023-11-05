@@ -632,9 +632,6 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
   strcat(fileName, rev_str);
   strcat(fileName, ".log");
 
-  Serial.println(work);
-  Serial.println(fileName);
-
   if (SD.freeClusterCount() < 1) // Si la carte SD est pleine (ou presque) on passe en mode erreur
   {
     mode = erreur_sd;

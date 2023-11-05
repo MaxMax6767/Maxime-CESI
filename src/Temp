@@ -147,7 +147,6 @@ void ecriture() // Fonction de gestion de l'écriture dans le fichier sur la car
         newDataFile.close();                                                                    // Fermeture du fichier
       }
     }
-
     else
     {
       Serial.println(F("Folder does not exist\nCreating folder"));
