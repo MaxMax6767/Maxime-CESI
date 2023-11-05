@@ -42,7 +42,7 @@ int erreurs[5] = {0, 0, 0, 0, 0};
 +----------+---------------------------------+
 | 0        | Erreur SD pleine                |
 +----------+---------------------------------+
-| 1        | Erreur lors de l'enregistrement |
+| 1        | Erreur d'accès à la RTC         |
 +----------+---------------------------------+
 | 2        | Erreur, valeur hors bornes      |
 +----------+---------------------------------+
@@ -330,12 +330,12 @@ void getGps() // Fonction de récupération des données GPS
         {
           goto affichage;
         }
-        errorHandler();
-        erreurs[3]++; // On incrémente le compteur d'erreurs de capteur
-        if (erreurs[3] >= 2)
-        {
-          mode = erreur_gps;
-        }
+      }
+      errorHandler();
+      erreurs[3]++; // On incrémente le compteur d'erreurs de capteur
+      if (erreurs[3] >= 2)
+      {
+        mode = erreur_gps;
       }
     }
     else
@@ -388,12 +388,12 @@ void getTemperature()
       {
         goto affichage;
       }
-      errorHandler();
-      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
-      if (erreurs[4] >= 2)
-      {
-        mode = erreur_capteur;
-      }
+    }
+    errorHandler();
+    erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+    if (erreurs[4] >= 2)
+    {
+      mode = erreur_capteur;
     }
   }
   else
@@ -434,12 +434,12 @@ void getHumidite()
       {
         goto affichage;
       }
-      errorHandler();
-      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
-      if (erreurs[4] >= 2)
-      {
-        mode = erreur_capteur;
-      }
+    }
+    errorHandler();
+    erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+    if (erreurs[4] >= 2)
+    {
+      mode = erreur_capteur;
     }
   }
   else
@@ -478,12 +478,12 @@ void getPression()
       {
         goto affichage;
       }
-      errorHandler();
-      erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
-      if (erreurs[4] >= 2)
-      {
-        mode = erreur_capteur;
-      }
+    }
+    errorHandler();
+    erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+    if (erreurs[4] >= 2)
+    {
+      mode = erreur_capteur;
     }
   }
   else
@@ -550,23 +550,44 @@ void getLuminosite()
 
 void getTemps()
 {
-  if (mode == maintenance)
+  if (String(clock.hour) == "" || String(clock.month) == "" || String(clock.dayOfMonth) == "")
   {
-    Serial.print(clock.hour); // Ecriture de l'heure
-    Serial.print(sep2);       // Ecriture du séparateur
-    Serial.print(clock.minute);
-    Serial.print(sep2);
-    Serial.print(clock.second);
-    Serial.print(sep1);
+    unsigned long debutErreur = millis();
+    while (millis() - debutErreur < TIMEOUT * 1000)
+    {
+      if (String(clock.hour) != "" && String(clock.month) != "" && String(clock.dayOfMonth) != "")
+      {
+        goto ecriture;
+      }
+    }
+    errorHandler();
+    erreurs[4]++; // On incrémente le compteur d'erreurs de capteur
+    if (erreurs[4] >= 2)
+    {
+      mode = erreur_capteur;
+    }
   }
   else
   {
-    dataFile.print(clock.hour); // Ecriture de l'heure
-    dataFile.print(sep2);       // Ecriture du séparateur
-    dataFile.print(clock.minute);
-    dataFile.print(sep2);
-    dataFile.print(clock.second);
-    dataFile.print(sep1);
+  ecriture:
+    if (mode == maintenance)
+    {
+      Serial.print(clock.hour); // Ecriture de l'heure
+      Serial.print(sep2);       // Ecriture du séparateur
+      Serial.print(clock.minute);
+      Serial.print(sep2);
+      Serial.print(clock.second);
+      Serial.print(sep1);
+    }
+    else
+    {
+      dataFile.print(clock.hour); // Ecriture de l'heure
+      dataFile.print(sep2);       // Ecriture du séparateur
+      dataFile.print(clock.minute);
+      dataFile.print(sep2);
+      dataFile.print(clock.second);
+      dataFile.print(sep1);
+    }
   }
 }
 
